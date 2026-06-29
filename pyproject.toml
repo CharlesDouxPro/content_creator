@@ -1,0 +1,26 @@
+[project]
+name = "tiktok-insta"
+version = "0.1.0"
+description = ""
+package-mode = false
+authors = [
+    {name = "Charlequin-d",email = "charles.d@arlq.ai"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4 (>=4.13.5,<5.0.0)",
+    "bs4 (>=0.0.2,<0.0.3)",
+    "pydantic (>=2.11.7,<3.0.0)",
+    "openai (>=1.103.0,<2.0.0)",
+    "mutagen (>=1.47.0,<2.0.0)",
+    "google-cloud-storage (>=3.3.1,<4.0.0)",
+    "pandas (>=2.3.2,<3.0.0)",
+    "google-genai (>=1.47.0,<2.0.0)",
+    "runwayml (>=3.22.0,<4.0.0)",
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

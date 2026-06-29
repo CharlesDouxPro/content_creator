@@ -1,0 +1,24 @@
+# Secrets
+api-key.json
+*.key
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Outputs / runs / media
+output/
+runs/
+*.png
+*.mp4
+
+# OS
+.DS_Store
+
+# Env
+.venv/
+venv/
