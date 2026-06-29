@@ -16,8 +16,9 @@ from dataclasses import dataclass
 import requests
 from openai import OpenAI
 
-from content_creator.config.config import API_KEYS
+from content_creator.config.config import API_KEYS, VIDEO_BACKEND_CONFIG
 from content_creator.pipelines.modules import GCSManager, ArticleSummarizer
+from content_creator.agentic import ltx_client
 
 # ========================
 # CONFIG
@@ -183,8 +184,21 @@ def prepare_scene_portrait(regen: bool = False, src: str = AVATAR_LOCAL,
 
 
 def generate_lipsync(portrait_url: str, audio_url: str, video_prompt: str,
-                     seed: int, dest: str) -> str:
-    """[A-roll] Tête parlante lip-sync (Pruna) pilotée par l'audio. Retourne le clip brut."""
+                     seed: int, dest: str, audio_path: str = None,
+                     ltx_params: dict = None) -> str:
+    """[A-roll] Tête parlante. Deux backends selon VIDEO_BACKEND_CONFIG :
+
+    - DeepInfra/Pruna (défaut) : anime le portrait piloté PAR L'AUDIO (image+audio),
+      l'audio sert aussi de bande-son. Retourne le clip brut (audio inclus).
+    - LTX local (USE_LTX_LIPSYNC) : le serveur LTX n'a pas d'équivalent image+audio.
+      On fait donc de l'IMAGE-TO-VIDEO depuis le portrait (mouvement piloté par le
+      prompt), durée calée sur l'audio de narration, puis on muxe la narration TTS
+      comme bande-son (le clip rendu N'inclut PAS l'audio -> _render_spec doit le
+      remettre, cf. video_tools). `audio_path` = fichier local de narration.
+    """
+    if VIDEO_BACKEND_CONFIG["use_ltx_lipsync"]:
+        return _ltx_talking_head(portrait_url, video_prompt, seed, dest, audio_path, ltx_params)
+
     data = deepinfra_post(PRUNA_URL, {
         "image": portrait_url,
         "audio": audio_url,             # pilote le lip-sync + sert de bande-son
@@ -198,12 +212,78 @@ def generate_lipsync(portrait_url: str, audio_url: str, video_prompt: str,
     return download(url, dest)
 
 
-def generate_broll(shot: str, duration: int, seed: int, media: list, dest: str) -> str:
-    """[B-roll] Plan cinématographique (Wan) à partir d'un prompt + image de réf. Retourne le clip brut."""
+def _ltx_talking_head(portrait_url: str, video_prompt: str, seed: int,
+                      dest: str, audio_path: str = None, ltx_params: dict = None) -> str:
+    """Tête parlante via serveur LTX local (image-to-video depuis le portrait).
+
+    LTX i2v ne consomme PAS de fichier audio : il génère sa propre piste. On cale donc
+    la DURÉE de la vidéo sur celle de la narration TTS (si fournie), et on laisse
+    _render_spec remplacer l'audio LTX par la narration via reframe_vertical(audio_in=).
+    Le clip retourné NE contient donc pas l'audio voulu -> il faut le muxer ensuite.
+
+    `ltx_params` (depuis l'agent, optionnels) priment sur les défauts : width/height,
+    frame_rate, num_inference_steps, image_strength, hdr, duration_s. La durée par
+    défaut = longueur de la narration ; l'agent peut la forcer via duration_s.
+    """
+    p = dict(ltx_params or {})
+    ltx_client.health()                                   # fail-fast si serveur down
+    local_img = os.path.join(os.path.dirname(dest) or ".", "_ltx_portrait_src.png")
+    download(portrait_url, local_img)
+    # Durée : duration_s de l'agent prime, sinon longueur de la narration.
+    duration = p.pop("duration_s", None)
+    if duration is None and audio_path:
+        duration = ffprobe_duration(audio_path)
+    # En i2v, le prompt décrit le MOUVEMENT/caméra (la scène vient de l'image).
+    prompt = (
+        f"{video_prompt}. The person speaks to camera; natural lively head movements "
+        "and subtle gestures, expressive but calm, fixed framing, soft natural lighting."
+    )
+    return ltx_client.generate(
+        prompt=prompt, dest=dest, image_path=local_img, seed=seed,
+        duration_s=duration, image_strength=p.pop("image_strength", 1.0), **p,
+    )
+
+
+def _media_image_url(media: list) -> str | None:
+    """Récupère l'URL de la 1ère image de référence dans `media` (sinon None)."""
+    for m in media or []:
+        if m.get("type") == "reference_image" and m.get("url"):
+            return m["url"]
+    return None
+
+
+def generate_broll(shot: str, duration: int, seed: int, media: list, dest: str,
+                   ltx_params: dict = None) -> str:
+    """[B-roll] Plan cinématographique. Deux backends selon VIDEO_BACKEND_CONFIG :
+
+    - DeepInfra/Wan (défaut) : i2v depuis l'image de réf (media).
+    - LTX local (USE_LTX_BROLL) : i2v via le serveur LTX local (POST /generate).
+    Dans les deux cas l'audio du clip est remplacé par la narration en aval
+    (reframe_vertical(audio_in=...)), donc l'audio généré ici n'a pas d'importance.
+
+    `ltx_params` (depuis l'agent, optionnels) priment : width/height, frame_rate,
+    num_inference_steps, image_strength, hdr, duration_s (sinon = `duration` calé
+    sur la narration).
+    """
     prompt = (
         f"{shot}. Photorealistic, cinematic, the exact same person and face as Image 1, "
         "natural subtle motion, content-creator aesthetic, warm and calm."
     )
+
+    if VIDEO_BACKEND_CONFIG["use_ltx_broll"]:
+        p = dict(ltx_params or {})
+        ltx_client.health()                               # fail-fast si serveur down
+        ref_url = _media_image_url(media)
+        local_img = None
+        if ref_url:
+            local_img = os.path.join(os.path.dirname(dest) or ".", "_ltx_broll_src.png")
+            download(ref_url, local_img)
+        return ltx_client.generate(
+            prompt=prompt, dest=dest, image_path=local_img, seed=seed,
+            duration_s=p.pop("duration_s", float(duration)),
+            image_strength=p.pop("image_strength", 0.85), **p,
+        )
+
     data = deepinfra_post(WAN_URL, {
         "prompt": prompt,
         "media": media,

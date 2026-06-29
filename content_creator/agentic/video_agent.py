@@ -26,7 +26,7 @@ from content_creator.agentic.capabilities import (
 )
 from content_creator.agentic.video_tools import VideoSession, openai_tool_schemas, dispatch
 from content_creator.agentic.video_skills import get_skill
-from content_creator.agentic.ltx_prompting import LTX_PROMPT_GUIDE
+from content_creator.agentic.ltx_prompting import build_prompt_guide
 from content_creator.agentic.trace import Tracer
 
 # Cerveau de l'agent (hébergé sur DeepInfra, OpenAI-compatible, function calling)
@@ -81,8 +81,9 @@ def run_agent(content: str, skill_name: str = "avatar_story", avatar: str = "ima
     client = OpenAI(api_key=API_KEYS["deepinfra_api_key"],
                     base_url=API_KEYS["deepinfra_base_url"])
     tools = openai_tool_schemas(skill.tool_names)
-    # skill (réalisation) + compétence de prompting du moteur vidéo (LTX)
-    system = skill.system_prompt + "\n\n" + LTX_PROMPT_GUIDE
+    # skill (réalisation) + compétence de prompting du moteur vidéo (LTX), ADAPTÉE
+    # au backend actif (i2v vs t2v, résolution/fps réellement rendus).
+    system = skill.system_prompt + "\n\n" + build_prompt_guide()
     if mood:   # le mood pilote les CHOIX DE RÉALISATION du master (sinon: réalisation classique)
         system += (
             f"\n\n## MOOD (priorité haute)\n"

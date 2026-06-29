@@ -16,12 +16,12 @@ PIPELINES = [
         "name": "20min-foot",
         "url": "https://www.20minutes.fr/sport/football/",
         "skill": "avatar_story",
-        "avatar": "image.png",
+        "avatar": "avatars/avatar_mature_men.jpeg",
     },
     {
         "name": "20min-tennis",
         "url": "https://www.20minutes.fr/sport/tennis/",
         "skill": "avatar_story",
-        "avatar": "image.png",
+        "avatar": "avatars/avatar_mature_men.jpeg",
     },
 ]

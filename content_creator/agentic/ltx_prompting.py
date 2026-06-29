@@ -6,9 +6,14 @@ Expertise injectée dans le system prompt du master pour qu'il rédige des promp
 vidéo de qualité (les `shot_description` envoyés au moteur), en suivant le mood et
 le format réseaux sociaux. Distillé de la doc de prompting LTX-2.
 
-(Le branchement technique réel sur l'API LTX viendra plus tard ; ici on outille le
-master pour qu'il PROMPTE bien le moteur.)
+Le guide est désormais ADAPTÉ AU BACKEND ACTIF (cf. build_prompt_guide) : en mode
+LTX local, le rendu se fait en IMAGE-TO-VIDEO (l'image fournit déjà la scène), donc
+le prompt doit décrire le MOUVEMENT / la CAMÉRA / l'audio, PAS la scène. On injecte
+aussi la résolution / le fps / la durée par défaut réellement utilisés.
 """
+
+from content_creator.config.config import VIDEO_BACKEND_CONFIG
+
 
 LTX_PROMPT_GUIDE = """\
 # COMPÉTENCE — Prompting du moteur vidéo (LTX-2)
@@ -96,4 +101,68 @@ BONNES PRATIQUES :
   - prompt trop long  → le modèle peut sauter des mots ;
   - prompt trop court → le rendu paraît lent et peu naturel.
 """
+
+
+# Section injectée UNIQUEMENT quand le rendu se fait en image-to-video sur le serveur
+# LTX local (USE_LTX_BROLL / USE_LTX_LIPSYNC). En i2v, l'IMAGE fournit déjà la scène
+# (décor, sujet, palette) : décrire à nouveau la scène entre en conflit avec l'image.
+_LTX_I2V_GUIDE = """\
+# MODE ACTIF — IMAGE-TO-VIDEO (serveur LTX local)
+
+Le moteur reçoit une IMAGE de référence (le portrait/décor de l'avatar) PLUS ton prompt.
+L'image FOURNIT DÉJÀ la scène : décor, sujet, vêtements, palette, cadrage initial.
+
+DONC, dans `shot_description`, décris UNIQUEMENT ce qui n'est pas dans l'image :
+- le MOUVEMENT du sujet (gestes, démarche, regard qui se tourne…),
+- le COMPORTEMENT de la CAMÉRA (slow push in, handheld tracking, pan, static…) et
+  l'état du plan APRÈS le mouvement,
+- l'AUDIO/l'ambiance si pertinent.
+NE redécris PAS la scène/le décor/l'apparence déjà visibles sur l'image (ça crée des
+incohérences). Reste bref (2–4 phrases), au présent, en anglais, un seul plan continu.
+
+EXEMPLE (i2v, b-roll) :
+"The camera slowly pushes in as the man turns his head toward the lens and gives a calm,
+confident nod; subtle natural motion, shallow depth of field, soft ambient room tone."
+
+PARAMÈTRES PAR PLAN (optionnels) — `add_talking_clip` / `add_broll_clip` acceptent :
+- `duration_s` : durée du plan (défaut = longueur de la narration). Étire un plan
+  d'ambiance, raccourcis une punchline. Reste dans 2–10 s.
+- `image_strength` (i2v, 0–1) : adhérence à l'image de réf. 1.0 = très fidèle (peu de
+  mouvement) ; 0.7–0.85 = plus de liberté de mouvement/caméra. Pour du b-roll vivant,
+  préfère ~0.8 ; pour une tête parlante stable, garde ~1.0.
+- `hdr: true` : passe de raffinement (≈2× plus lent) — réserve aux plans CLÉS.
+- `num_inference_steps` : qualité/temps (défaut 30). Monte (40–50) seulement si demandé.
+- `width`/`height`/`frame_rate` : NE LES CHANGE QUE si explicitement demandé — des
+  tailles hétérogènes compliquent l'assemblage final (concat).
+N'envoie un paramètre QUE si tu veux dévier du défaut ; sinon laisse-le vide."""
+
+
+def _format_specs() -> str:
+    """Bloc rappelant les contraintes de FORMAT réellement appliquées (résolution,
+    fps, durée par défaut). Permet au master de prompter en cohérence avec le rendu."""
+    c = VIDEO_BACKEND_CONFIG
+    w, h, fr = c["ltx_width"], c["ltx_height"], c["ltx_frame_rate"]
+    return f"""\
+# FORMAT RÉELLEMENT RENDU (respecte-le dans tes prompts)
+- Cadre VERTICAL 9:16 — {w}×{h}px @ {fr:g} fps. Compose pour le mobile : sujet centré/haut,
+  marge en bas pour les sous-titres, action lisible en petit.
+- DURÉE d'un plan : par défaut calée sur la longueur de sa narration. Tu peux la forcer
+  via `duration_s` (ex. un plan d'ambiance plus long) — elle sera arrondie au format
+  valide du moteur (8k+1 frames). Garde des plans COURTS (2–10 s) pour le format réseaux.
+- Le moteur arrondit la résolution à un multiple de 64 ; n'essaie pas de la pré-ajuster.
+"""
+
+
+def build_prompt_guide() -> str:
+    """Assemble le guide de prompting ADAPTÉ AU BACKEND ACTIF.
+
+    - DeepInfra (défaut) : guide classique (l'image de réf existe aussi côté Wan, mais
+      la doc historique reste valable) + rappel de format.
+    - LTX local (i2v) : ajoute la section i2v (mouvement/caméra, pas la scène).
+    """
+    c = VIDEO_BACKEND_CONFIG
+    parts = [LTX_PROMPT_GUIDE, _format_specs()]
+    if c["use_ltx_broll"] or c["use_ltx_lipsync"]:
+        parts.append(_LTX_I2V_GUIDE)
+    return "\n\n".join(parts)
 

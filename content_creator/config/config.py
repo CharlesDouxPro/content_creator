@@ -3,7 +3,24 @@ Configuration file for the TikTok/Instagram content pipeline.
 Modify the PIPELINE_CONFIG dictionary to change thematic and media settings.
 """
 
+import os
 from datetime import datetime
+
+from dotenv import load_dotenv
+
+# Charge le .env situé à la racine du repo content_creator (deux niveaux au-dessus
+# de ce fichier : config/ -> content_creator/ -> repo). Les variables déjà présentes
+# dans l'environnement priment (override=False) : on peut surcharger depuis le shell.
+_ENV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
+load_dotenv(_ENV_PATH, override=False)
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    """Lit une variable d'env booléenne ('1', 'true', 'yes', 'on')."""
+    val = os.getenv(name)
+    if val is None:
+        return default
+    return val.strip().lower() in {"1", "true", "yes", "on"}
 
 
 # ========================
@@ -46,8 +63,8 @@ PIPELINE_CONFIG = {
 # API KEYS AND CREDENTIALS
 # ========================
 API_KEYS = {
-    "deepinfra_api_key": "7jIPsm1yv398SZpzLaE0qw2DIs2Y5CZG",
-    "deepinfra_base_url": "https://api.deepinfra.com/v1/openai",
+    "deepinfra_api_key": os.getenv("DEEPINFRA_API_KEY", "7jIPsm1yv398SZpzLaE0qw2DIs2Y5CZG"),
+    "deepinfra_base_url": os.getenv("DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai"),
     "google_tts_api_key": "AIzaSyDD8i61OqNlRjgH7m1oCqQZen308jtvJmw",
     "creatomate_api_key": "83098d19134640efaf7da1bb70539437cd53351b2eb8b009ff435ffabbfd9b6b45ede9de692b8fdb6f55cf64053e448f",
     "creatomate_url": "https://api.creatomate.com/v2/renders",
@@ -90,6 +107,33 @@ VIDEO_CONFIG = {
     "runway_video_duration": 5,
     "video_source": "pexels",  # Options: "runway" (AI generation) or "pexels" (stock videos)
     "temp_dir": "temp_videos",  # Directory for temporary video downloads
+}
+
+# ========================
+# VIDEO BACKEND (DeepInfra hébergé  vs  serveur LTX-2.3 local)
+# ========================
+# Deux flags INDÉPENDANTS pour router chaque type de plan :
+#   USE_LTX_BROLL   -> les plans b-roll passent par le serveur LTX local (POST /generate)
+#                      au lieu de Wan/DeepInfra.
+#   USE_LTX_LIPSYNC -> les plans "tête parlante" passent par le serveur LTX local
+#                      (POST /generate en image-to-video depuis le portrait, narration
+#                      TTS gardée en piste audio) au lieu de Pruna/DeepInfra.
+# Par défaut (False/False) : comportement actuel 100% DeepInfra, rien ne change.
+# LTX_SERVER_URL : adresse du serveur LTX (cf. LTX-video-server, défaut port 8000).
+VIDEO_BACKEND_CONFIG = {
+    "use_ltx_broll": _env_bool("USE_LTX_BROLL", False),
+    "use_ltx_lipsync": _env_bool("USE_LTX_LIPSYNC", False),
+    "ltx_server_url": os.getenv("LTX_SERVER_URL", "http://localhost:8000"),
+    # Timeout (s) des appels au serveur LTX : la génération est lente (2-3 min, +
+    # pour la HDR / 4K). 1800s = 30 min de marge.
+    "ltx_timeout": int(os.getenv("LTX_TIMEOUT", "1800")),
+    # Résolution portrait 9:16 demandée au serveur LTX (arrondie à un multiple de 64
+    # côté serveur). Alignée sur OUT_W/OUT_H de capabilities.py.
+    "ltx_width": int(os.getenv("LTX_WIDTH", "720")),
+    "ltx_height": int(os.getenv("LTX_HEIGHT", "1280")),
+    "ltx_frame_rate": float(os.getenv("LTX_FRAME_RATE", "24")),
+    # Passe HDR optionnelle sur le serveur LTX (double le temps de rendu).
+    "ltx_hdr": _env_bool("LTX_HDR", False),
 }
 
 # ========================

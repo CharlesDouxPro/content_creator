@@ -27,6 +27,7 @@ from content_creator.agentic.capabilities import (
     synthesize_audio, generate_lipsync, generate_broll,
     reframe_vertical, concat_clips, prepare_scene_portrait,
 )
+from content_creator.config.config import VIDEO_BACKEND_CONFIG
 from content_creator.pipelines.modules import VideoGenerator
 
 # ========================
@@ -96,16 +97,23 @@ def _render_spec(session: "VideoSession", spec: dict) -> dict:
     narration = os.path.join(d, f"narration_{idx+1}.mp3")
     raw = os.path.join(d, f"plan_{idx+1}_raw.mp4")
     final = os.path.join(d, f"plan_{idx+1}.mp4")
+    ltx_params = spec.get("ltx_params") or {}
     try:
         if spec["kind"] == "talking":
             _, dur = synthesize_audio(session.ctx.summarizer, spec["text"], narration)
             audio_url = upload_public(session.ctx.gcs, narration, f"media/test/narration_{idx+1}.mp3")
-            generate_lipsync(spec["portrait_url"], audio_url, spec["video_prompt"], spec["seed"], raw)
-            reframe_vertical(raw, final)                      # audio narration déjà dans la vidéo
+            generate_lipsync(spec["portrait_url"], audio_url, spec["video_prompt"],
+                             spec["seed"], raw, audio_path=narration, ltx_params=ltx_params)
+            if VIDEO_BACKEND_CONFIG["use_ltx_lipsync"]:
+                # LTX i2v ne porte pas la narration : on muxe la narration TTS comme bande-son.
+                reframe_vertical(raw, final, audio_in=narration)
+            else:
+                reframe_vertical(raw, final)                  # Pruna : audio narration déjà dans la vidéo
         else:  # broll
             _, dur = synthesize_audio(session.ctx.summarizer, spec["narration_text"], narration)
             duration = max(2, min(15, int(round(dur + 0.8))))
-            generate_broll(spec["shot"], duration, spec["seed"], spec["media"], raw)
+            generate_broll(spec["shot"], duration, spec["seed"], spec["media"], raw,
+                           ltx_params=ltx_params)
             reframe_vertical(raw, final, audio_in=narration)  # remplace l'audio par la narration
         secs = round(time.time() - t0, 1)
         print(f"   ✓ [plan {idx+1} {spec['kind']}] {os.path.basename(final)} ({secs}s)", flush=True)
@@ -131,6 +139,33 @@ def render_plan(session: "VideoSession", workers: int = None) -> list:
 # ========================
 # TOOLS — planification (instantanés)
 # ========================
+# Propriétés de paramètres LTX réutilisées par les deux tools de planification.
+# N'ONT D'EFFET QUE si le backend LTX local est actif (USE_LTX_BROLL/USE_LTX_LIPSYNC) ;
+# sinon ignorées. Tous OPTIONNELS : laisser vide => défauts du .env / pipeline.
+_LTX_PARAM_PROPS = {
+    "duration_s": {"type": "number", "description": "Optionnel (LTX): durée cible du plan en secondes "
+                   "(arrondie au format 8k+1). Défaut: longueur de la narration. Garde 2–10 s."},
+    "width": {"type": "integer", "description": "Optionnel (LTX): largeur px (multiple de 64, arrondi serveur). "
+              "Défaut: format 9:16 du .env. Ne change que pour un besoin précis (cohérence du concat)."},
+    "height": {"type": "integer", "description": "Optionnel (LTX): hauteur px (multiple de 64). Défaut: 9:16 du .env."},
+    "frame_rate": {"type": "number", "description": "Optionnel (LTX): images/s. Défaut: .env (24)."},
+    "num_inference_steps": {"type": "integer", "description": "Optionnel (LTX): nb d'étapes de denoising "
+                            "(plus haut = un peu mieux, plus lent). Défaut serveur: 30."},
+    "image_strength": {"type": "number", "description": "Optionnel (LTX i2v): adhérence à l'image de réf "
+                       "0–1 (1=colle fort, 0.7–0.85=plus de liberté de mouvement)."},
+    "hdr": {"type": "boolean", "description": "Optionnel (LTX): passe HDR de raffinement (≈2× plus lent). "
+            "Réserve aux plans CLÉS."},
+}
+
+# Clés de _LTX_PARAM_PROPS = les noms d'args LTX à extraire des kwargs d'un tool.
+_LTX_PARAM_KEYS = tuple(_LTX_PARAM_PROPS.keys())
+
+
+def _collect_ltx_params(kwargs: dict) -> dict:
+    """Extrait les params LTX fournis (non None) d'un appel de tool -> dict propre."""
+    return {k: kwargs[k] for k in _LTX_PARAM_KEYS if kwargs.get(k) is not None}
+
+
 @tool({
     "name": "add_talking_clip",
     "description": "PLANIFIE un plan FACE CAMÉRA: l'avatar dit `text`, lèvres synchronisées (lip-sync). "
@@ -139,15 +174,17 @@ def render_plan(session: "VideoSession", workers: int = None) -> list:
     "parameters": {"type": "object", "properties": {
         "text": {"type": "string", "description": "Texte exact que l'avatar prononce (un segment/phrase)."},
         "expression": {"type": "string", "description": "Optionnel: ton/expression (ex. 'sourire chaleureux')."},
+        **_LTX_PARAM_PROPS,
     }, "required": ["text"]},
 })
-def add_talking_clip(session: VideoSession, text: str, expression: str = None) -> dict:
+def add_talking_clip(session: VideoSession, text: str, expression: str = None, **kwargs) -> dict:
     idx = session.clip_no
     session.clip_no += 1
     video_prompt = " ".join(p for p in [expression, PRUNA_MOVEMENT] if p)
     session.plan.append({
         "kind": "talking", "idx": idx, "text": text, "video_prompt": video_prompt,
         "portrait_url": session.ctx.portrait_url, "seed": SEED_BASE + idx,
+        "ltx_params": _collect_ltx_params(kwargs),
     })
     return {"status": "ok", "queued": "talking", "slot": idx + 1, "text": text[:60]}
 
@@ -162,14 +199,16 @@ def add_talking_clip(session: VideoSession, text: str, expression: str = None) -
         "shot_description": {"type": "string", "description": "Prompt vidéo pour le moteur (LTX), "
                              "rédigé selon la COMPÉTENCE de prompting : un seul plan continu, chronologique, "
                              "au présent, cadrage + lumière + action + caméra, en anglais, qui reflète le mood."},
+        **_LTX_PARAM_PROPS,
     }, "required": ["narration_text", "shot_description"]},
 })
-def add_broll_clip(session: VideoSession, narration_text: str, shot_description: str) -> dict:
+def add_broll_clip(session: VideoSession, narration_text: str, shot_description: str, **kwargs) -> dict:
     idx = session.clip_no
     session.clip_no += 1
     session.plan.append({
         "kind": "broll", "idx": idx, "narration_text": narration_text,
         "shot": shot_description, "media": session.ctx.media, "seed": SEED_BASE + idx,
+        "ltx_params": _collect_ltx_params(kwargs),
     })
     return {"status": "ok", "queued": "broll", "slot": idx + 1}
 
