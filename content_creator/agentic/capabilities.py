@@ -17,14 +17,15 @@ import requests
 from openai import OpenAI
 
 from content_creator.config.config import API_KEYS, VIDEO_BACKEND_CONFIG
-from content_creator.pipelines.modules import GCSManager, ArticleSummarizer
+from content_creator.pipelines.modules import GCSManager, ArticleSummarizer, VideoGenerator
 from content_creator.agentic import ltx_client
+
 
 # ========================
 # CONFIG
 # ========================
 AVATAR_LOCAL = "image.png"
-
+os.getenv("PRUNA_URL")
 PRUNA_URL = "https://api.deepinfra.com/v1/inference/PrunaAI/p-video-avatar"
 WAN_URL = "https://api.deepinfra.com/v1/inference/Wan-AI/Wan2.7-R2V"
 KONTEXT_MODEL = "black-forest-labs/FLUX.1-Kontext-dev"
@@ -57,11 +58,10 @@ PRUNA_MOVEMENT = (
 
 @dataclass
 class Ctx:
-    """Ressources partagées entre les plans (thread-safe : pas d'état mutable partagé)."""
+    """Ressources partagées entre les plans (thread-safe : pas d'état mutable partagé).
+    Pas d'« avatar » global : l'identité visuelle/vocale vit dans les personnages (session.characters)."""
     gcs: GCSManager
     summarizer: ArticleSummarizer
-    portrait_url: str
-    media: list
 
 
 # ========================
@@ -75,13 +75,27 @@ def sh(cmd: list) -> subprocess.CompletedProcess:
     return p
 
 
-def deepinfra_post(url: str, payload: dict) -> dict:
-    """POST authentifié vers une inférence DeepInfra, retourne le JSON."""
-    headers = {"Authorization": f"bearer {API_KEYS['deepinfra_api_key']}",
+def deepinfra_post(url: str, payload: dict, token: str = None) -> dict:
+    """POST authentifié vers une inférence DeepInfra, retourne le JSON.
+    `token` (depuis le provider du channel) prime ; sinon clé globale du .env."""
+    headers = {"Authorization": f"bearer {token or API_KEYS['deepinfra_api_key']}",
                "Content-Type": "application/json"}
     r = requests.post(url, json=payload, headers=headers, timeout=900)
     r.raise_for_status()
     return r.json()
+
+
+def _deepinfra_inference(model_config: dict, fallback_url: str) -> tuple[str, str]:
+    """Depuis un ModelConfig {model_name, provider}, dérive l'URL d'inférence brute
+    DeepInfra (/v1/inference/{model}) et le token. Le provider expose le base_url
+    OpenAI-compatible (.../v1/openai) ; l'inférence média passe par .../v1/inference.
+    Sans config -> (fallback_url, clé globale) : comportement historique préservé."""
+    if not model_config:
+        return fallback_url, API_KEYS["deepinfra_api_key"]
+    provider = model_config["provider"]
+    base = provider["base_url"].rstrip("/")
+    root = base[:-len("/openai")] if base.endswith("/openai") else base
+    return f"{root}/inference/{model_config['model_name']}", provider["token"]
 
 
 def download(url: str, dest: str) -> str:
@@ -100,6 +114,63 @@ def upload_public(gcs: GCSManager, local: str, dest: str) -> str:
     if not res:
         raise RuntimeError(f"Echec upload GCS: {local}")
     return res["url"]
+
+
+# ========================
+# RECHERCHE D'IMAGE WEB
+# ========================
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+
+
+def is_image_path(path: str) -> bool:
+    """True si le chemin/l'URL pointe vers une image (par extension, query string ignorée)."""
+    return path.lower().split("?")[0].endswith(IMAGE_EXTS)
+
+
+def fetch_web_image(query: str, dest_dir: str, idx: int = 0) -> str | None:
+    """Cherche une image sur le web (Google Custom Search) pour `query`, la télécharge et la
+    valide. Retourne le chemin LOCAL d'une image raster exploitable (convertie en JPEG si besoin),
+    ou None si aucune image utilisable n'a pu être récupérée (clé absente, pas de résultat,
+    téléchargement KO, format invalide). Réutilise VideoGenerator.google_image_search."""
+    api_key = API_KEYS.get("google_search_api_key")
+    cx = API_KEYS.get("google_search_cx")
+    if not api_key or not cx:
+        print("[fetch_web_image] clé Google Custom Search absente (google_search_api_key/cx)")
+        return None
+    image_url = VideoGenerator.google_image_search(query=query, api_key=api_key, cx=cx, num_results=1)
+    if not image_url:
+        return None
+
+    from PIL import Image
+
+    os.makedirs(dest_dir, exist_ok=True)
+    raw = os.path.join(dest_dir, f"web_image_{idx}_raw")
+    out = os.path.join(dest_dir, f"web_image_{idx}.jpg")
+    headers = {  # évite les 403 (Wikipedia & co.)
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    try:
+        r = requests.get(image_url, timeout=30, headers=headers)
+        r.raise_for_status()
+        with open(raw, "wb") as f:
+            f.write(r.content)
+        with Image.open(raw) as img:
+            if img.width < 64 or img.height < 64:
+                raise ValueError(f"image trop petite: {img.width}x{img.height}")
+            if img.mode in ("RGBA", "P", "LA"):
+                img = img.convert("RGB")
+            img.save(out, "JPEG", quality=90)
+        return out
+    except Exception as e:
+        print(f"[fetch_web_image '{query}'] échec ({image_url}): {e}")
+        return None
+    finally:
+        if os.path.exists(raw):
+            try:
+                os.remove(raw)
+            except OSError:
+                pass
 
 
 # ========================
@@ -138,6 +209,23 @@ def reframe_vertical(video_in: str, out: str, audio_in: str = None) -> str:
     return out
 
 
+def image_to_clip(image_in: str, out: str, duration: float = 4.0, audio_in: str = None) -> str:
+    """Transforme une image fixe en clip vidéo 9:16 (720x1280, 30fps). Si `audio_in` est fourni,
+    il sert de bande-son et la durée se cale dessus (-shortest) ; sinon le clip dure `duration` s.
+    Utilisé pour insérer une image (ex. récupérée par fetch_web_image) dans le montage."""
+    cmd = ["ffmpeg", "-y", "-loop", "1", "-i", image_in]
+    if audio_in:
+        cmd += ["-i", audio_in]
+    cmd += ["-vf", _VF, "-r", str(FPS), "-c:v", "libx264", "-pix_fmt", "yuv420p"]
+    if audio_in:
+        cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-shortest"]
+    else:
+        cmd += ["-t", f"{max(0.5, duration):.2f}"]
+    cmd += [out]
+    sh(cmd)
+    return out
+
+
 def concat_clips(clips: list, out: str) -> str:
     """Assemble plusieurs clips (déjà normalisés) en une vidéo finale."""
     list_path = os.path.join(os.path.dirname(out) or ".", "_concat_list.txt")
@@ -152,9 +240,14 @@ def concat_clips(clips: list, out: str) -> str:
 # ========================
 # CAPACITÉS IA
 # ========================
-def synthesize_audio(summarizer: ArticleSummarizer, text: str, out: str) -> tuple:
-    """Génère l'audio de narration (Google TTS FR). Retourne (chemin, durée_sec)."""
-    summarizer.text_to_speech_google(text, out)
+def synthesize_audio(summarizer: ArticleSummarizer, text: str, out: str,
+                     voice: str = None, api_key: str = None, base_url: str = None,
+                     style: str = None, voice_model: str = None, language: str = None) -> tuple:
+    """Génère l'audio de narration (Google TTS). Tout est propagé depuis le channel
+    (voice_generator / character) : `voice`, `style` (ton, Gemini TTS), `voice_model`, `language`,
+    `api_key`, `base_url`. Retourne (chemin, durée_sec)."""
+    summarizer.text_to_speech_google(text, out, voice=voice, api_key=api_key, base_url=base_url,
+                                     style=style, voice_model=voice_model, language=language)
     return out, ffprobe_duration(out)
 
 
@@ -185,7 +278,7 @@ def prepare_scene_portrait(regen: bool = False, src: str = AVATAR_LOCAL,
 
 def generate_lipsync(portrait_url: str, audio_url: str, video_prompt: str,
                      seed: int, dest: str, audio_path: str = None,
-                     ltx_params: dict = None) -> str:
+                     ltx_params: dict = None, model_config: dict = None) -> str:
     """[A-roll] Tête parlante. Deux backends selon VIDEO_BACKEND_CONFIG :
 
     - DeepInfra/Pruna (défaut) : anime le portrait piloté PAR L'AUDIO (image+audio),
@@ -199,13 +292,14 @@ def generate_lipsync(portrait_url: str, audio_url: str, video_prompt: str,
     if VIDEO_BACKEND_CONFIG["use_ltx_lipsync"]:
         return _ltx_talking_head(portrait_url, video_prompt, seed, dest, audio_path, ltx_params)
 
-    data = deepinfra_post(PRUNA_URL, {
+    url, token = _deepinfra_inference(model_config, PRUNA_URL)
+    data = deepinfra_post(url, {
         "image": portrait_url,
         "audio": audio_url,             # pilote le lip-sync + sert de bande-son
         "video_prompt": video_prompt,
         "resolution": "720p",
         "seed": seed,
-    })
+    }, token=token)
     url = data.get("video_url")
     if not url:
         raise RuntimeError(f"Pruna: pas de video_url ({json.dumps(data)[:200]})")
@@ -253,7 +347,7 @@ def _media_image_url(media: list) -> str | None:
 
 
 def generate_broll(shot: str, duration: int, seed: int, media: list, dest: str,
-                   ltx_params: dict = None) -> str:
+                   ltx_params: dict = None, model_config: dict = None) -> str:
     """[B-roll] Plan cinématographique. Deux backends selon VIDEO_BACKEND_CONFIG :
 
     - DeepInfra/Wan (défaut) : i2v depuis l'image de réf (media).
@@ -264,16 +358,22 @@ def generate_broll(shot: str, duration: int, seed: int, media: list, dest: str,
     `ltx_params` (depuis l'agent, optionnels) priment : width/height, frame_rate,
     num_inference_steps, image_strength, hdr, duration_s (sinon = `duration` calé
     sur la narration).
+
+    Sans image de référence dans `media` (mode génératif/animé, pas d'avatar), le prompt ne
+    contraint PAS l'identité « Image 1 » : c'est le `shot` + le mood qui pilotent le style.
     """
-    prompt = (
-        f"{shot}. Photorealistic, cinematic, the exact same person and face as Image 1, "
-        "natural subtle motion, content-creator aesthetic, warm and calm."
-    )
+    ref_url = _media_image_url(media)
+    if ref_url:
+        prompt = (
+            f"{shot}. Photorealistic, cinematic, the exact same person and face as Image 1, "
+            "natural subtle motion, content-creator aesthetic, warm and calm."
+        )
+    else:
+        prompt = f"{shot}. Cinematic, coherent and consistent style, smooth natural motion."
 
     if VIDEO_BACKEND_CONFIG["use_ltx_broll"]:
         p = dict(ltx_params or {})
         ltx_client.health()                               # fail-fast si serveur down
-        ref_url = _media_image_url(media)
         local_img = None
         if ref_url:
             local_img = os.path.join(os.path.dirname(dest) or ".", "_ltx_broll_src.png")
@@ -284,7 +384,8 @@ def generate_broll(shot: str, duration: int, seed: int, media: list, dest: str,
             image_strength=p.pop("image_strength", 0.85), **p,
         )
 
-    data = deepinfra_post(WAN_URL, {
+    url, token = _deepinfra_inference(model_config, WAN_URL)
+    data = deepinfra_post(url, {
         "prompt": prompt,
         "media": media,
         "negative_prompt": NEGATIVE_PROMPT,
@@ -293,7 +394,7 @@ def generate_broll(shot: str, duration: int, seed: int, media: list, dest: str,
         "duration": duration,
         "watermark": False,
         "seed": seed,
-    })
+    }, token=token)
     url = data.get("video_url")
     if not url:
         raise RuntimeError(f"Wan: pas de video_url ({json.dumps(data)[:200]})")

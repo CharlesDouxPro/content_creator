@@ -1,85 +1,143 @@
 #!/usr/bin/env python3
 """
-video_agent.py — Agent orchestrateur de vidéos.
+video_agent.py — Agent orchestrateur de vidéos (bibliothèque : `run_agent`).
 
-L'agent (Claude Opus 4.8 via DeepInfra, endpoint OpenAI-compatible) reçoit un texte,
-charge un *skill* (type de vidéo), et décide lui-même quels *tools* appeler pour
-construire la vidéo, plan par plan. Toutes les décisions sont tracées (cf. trace.py).
+L'agent (LLM `master_mind` via DeepInfra, endpoint OpenAI-compatible) reçoit un BRIEF + un
+*skill* (type de vidéo) + des personnages/ressources, et décide lui-même quels *tools* appeler
+pour construire la vidéo, plan par plan. Toutes les décisions sont tracées (cf. trace.py).
 
-Usage :
-    poetry run python video_agent.py "Mon texte..." --avatar image.png
-    poetry run python video_agent.py --file script.txt --avatar portrait.png --scene "studio podcast"
-    poetry run python video_agent.py "..." --skill avatar_story --scene
+Tout est piloté par le CHANNEL CONFIG (content_creator/config/channels.py) — aucun paramètre en
+ligne de commande. Lancement via la pipeline : `python -m content_creator.pipelines.pipeline_agentic`.
 """
 
 import os
 import json
 import time
-import argparse
 
 from openai import OpenAI
 
-from content_creator.config.config import API_KEYS
+from content_creator.config.channels import default_models_config
 from content_creator.pipelines.modules import GCSManager, ArticleSummarizer
-from content_creator.agentic.capabilities import (
-    Ctx, BACKGROUND_PROMPT, download, upload_public, prepare_scene_portrait,
+from content_creator.agentic.capabilities import Ctx, download, upload_public
+from content_creator.agentic.video_tools import (
+    VideoSession, openai_tool_schemas, dispatch, cleanup_fetched_images,
 )
-from content_creator.agentic.video_tools import VideoSession, openai_tool_schemas, dispatch
 from content_creator.agentic.video_skills import get_skill
 from content_creator.agentic.ltx_prompting import build_prompt_guide
 from content_creator.agentic.trace import Tracer
 
-# Cerveau de l'agent (hébergé sur DeepInfra, OpenAI-compatible, function calling)
+# Cerveau de l'agent : modèle par défaut (rôle `master_mind`) si le channel n'en fournit pas.
 AGENT_MODEL = "anthropic/claude-opus-4-8"
 
 
-def build_session(avatar: str, output_dir: str,
-                  apply_scene: bool = False, scene_prompt: str = None) -> VideoSession:
-    """Prépare les ressources partagées d'un run à partir d'un avatar (chemin local OU URL)."""
+def _resolve_characters(gcs: GCSManager, characters: dict, output_dir: str) -> dict:
+    """Résout les personnages -> {name: {voice, style, voice_model, language, description,
+    portrait_url, local_image}}. Pour un personnage avec image :
+    - `portrait_url` : URL publique (upload GCS si chemin local, sinon l'URL telle quelle) — input i2v/Pruna.
+    - `local_image`  : copie locale (téléchargée si URL) — requise par set_scene_background (FLUX)."""
+    resolved = {}
+    for name, c in (characters or {}).items():
+        img = c.get("image")
+        portrait_url = local_image = None
+        if img:
+            if str(img).startswith("http"):
+                portrait_url = img
+                local_image = os.path.join(output_dir, f"char_{name}_src")
+                download(img, local_image)
+            else:
+                local_image = img
+                portrait_url = upload_public(gcs, img, f"media/test/char_{name}.png")
+        resolved[name] = {"voice": c.get("voice"), "style": c.get("style"),
+                          "voice_model": c.get("voice_model"), "language": c.get("language"),
+                          "description": c.get("description"),
+                          "portrait_url": portrait_url, "local_image": local_image}
+    return resolved
+
+
+def build_session(output_dir: str, models: dict, ressources: dict = None,
+                  characters: dict = None) -> VideoSession:
+    """Prépare les ressources partagées d'un run. Aucune notion d'avatar global : l'identité
+    visuelle/vocale vit dans les PERSONNAGES (résolus ici). C'est le SKILL qui décide comment les
+    utiliser (ex. avatar_story : un personnage sert d'avatar face caméra).
+    `models` = PoolModelConfig : `slm` -> script/titre ; `lip_sync`/`video_generator`/`voice_generator`
+    propagés via la session. `ressources` = context.ressources exposés aux tools."""
     gcs = GCSManager()
-
-    # Toujours une copie locale de l'avatar (nécessaire à set_scene_background).
-    if str(avatar).startswith("http"):
-        avatar_local = os.path.join(output_dir, "avatar_src")
-        download(avatar, avatar_local)
-        avatar_is_url = True
-    else:
-        avatar_local = avatar
-        avatar_is_url = False
-
-    if apply_scene:
-        scene = prepare_scene_portrait(
-            regen=True, src=avatar_local,
-            prompt=scene_prompt or BACKGROUND_PROMPT,
-            out=os.path.join(output_dir, "scene_portrait.jpg"),
-        )
-        portrait_url = upload_public(gcs, scene, "media/test/scene_portrait.jpg")
-    elif avatar_is_url:
-        portrait_url = avatar                                   # déjà public
-    else:
-        portrait_url = upload_public(gcs, avatar_local, "media/test/avatar_portrait.png")
-
-    ctx = Ctx(gcs=gcs, summarizer=ArticleSummarizer(), portrait_url=portrait_url,
-              media=[{"type": "reference_image", "url": portrait_url}])
-    return VideoSession(ctx=ctx, avatar_local=avatar_local, output_dir=output_dir)
+    ctx = Ctx(gcs=gcs, summarizer=ArticleSummarizer(models["slm"]))
+    return VideoSession(ctx=ctx, output_dir=output_dir,
+                        models=models, ressources=ressources or {},
+                        voice=models.get("voice_generator"),
+                        characters=_resolve_characters(gcs, characters, output_dir))
 
 
-def run_agent(content: str, skill_name: str = "avatar_story", avatar: str = "image.png",
-              mood: str = None, article=None, apply_scene: bool = False, scene_prompt: str = None,
-              max_steps: int = 20, label: str = None) -> dict:
+def _render_ressources(ressources: dict) -> str:
+    """Inventaire lisible des ressources mises à disposition de l'agent (pour le message user).
+    L'agent référence ces chemins/urls tels quels dans `add_media_clip` / `add_background_music`."""
+    if not ressources:
+        return ""
+    lines = []
+    labels = {
+        "urls": "URLs (pages à scraper / médias distants)",
+        "local_paths": "Fichiers locaux (clips vidéo / images à monter)",
+        "audio_paths": "Pistes audio (musique / voix off)",
+    }
+    for key, label in labels.items():
+        items = ressources.get(key) or []
+        if items:
+            lines.append(f"- {label} :")
+            lines += [f"    - {it}" for it in items]
+    notes = ressources.get("notes")
+    if notes:
+        lines.append(f"- Notes : {notes}")
+    return "## RESSOURCES DISPONIBLES\n" + "\n".join(lines) if lines else ""
+
+
+def _render_characters(characters: dict) -> str:
+    """Inventaire des personnages pour l'agent : nom (à passer en `character`), description,
+    et s'ils ont un avatar (lip-sync possible) ou non (b-roll / voix off seulement)."""
+    if not characters:
+        return ""
+    lines = ["## PERSONNAGES (passe le NOM exact via le paramètre `character` des tools)"]
+    for name, c in characters.items():
+        bits = [c["description"]] if c.get("description") else []
+        bits.append("avatar dispo (lip-sync OK)" if c.get("image")
+                    else "pas d'avatar (b-roll / voix off)")
+        lines.append(f"- {name} : {'; '.join(bits)}")
+    return "\n".join(lines)
+
+
+def run_agent(content: str = None, skill_name: str = "avatar_story",
+              mood: str = None, article=None,
+              max_steps: int = 20, label: str = None, models_config: dict = None,
+              context: dict = None) -> dict:
     """Boucle tool-calling : l'agent construit la vidéo, chaque décision est tracée.
-    `content` = message utilisateur (article à adapter OU script déjà prêt).
+    `content` = contenu source (article à adapter OU script déjà prêt) ; optionnel.
+    `context` = brief du channel {prompt, ressources, mood, characters} : `prompt` est l'INTENTION
+    (la vidéo voulue), `ressources` la matière première exposée aux tools, `mood` le ton,
+    `characters` l'identité visuelle/vocale (le skill décide comment les utiliser).
     `article`  = FullArticle source (permet au master d'écrire le script via write_script).
+    `models_config` = PoolModelConfig du channel (rôles -> ModelConfig) ; à défaut, la
+    config par défaut. `master_mind` pilote ce LLM orchestrateur, les autres rôles sont
+    propagés via la session.
     Retourne {"video": chemin, "script": script écrit par le master}."""
+    models = models_config or default_models_config
+    context = context or {}
+    prompt = context.get("prompt")
+    ressources = context.get("ressources") or {}
+    characters = context.get("characters") or {}
+    mood = mood or context.get("mood")            # mood du channel (context)
+
     tracer = Tracer(label=label)
-    tracer.start(content, skill_name, avatar)
+    tracer.start(content or prompt or "", skill_name, "")
 
     skill = get_skill(skill_name)
-    session = build_session(avatar, tracer.dir, apply_scene, scene_prompt)
+    session = build_session(tracer.dir, models, ressources, characters=characters)
     session.article = article
+    session.name = label                          # namespace de dédup pour le tool scrape_article
 
-    client = OpenAI(api_key=API_KEYS["deepinfra_api_key"],
-                    base_url=API_KEYS["deepinfra_base_url"])
+    master_mind = models["master_mind"]
+    client = OpenAI(api_key=master_mind["provider"]["token"],
+                    base_url=master_mind["provider"]["base_url"])
+    agent_model = master_mind.get("model_name") or AGENT_MODEL
     tools = openai_tool_schemas(skill.tool_names)
     # skill (réalisation) + compétence de prompting du moteur vidéo (LTX), ADAPTÉE
     # au backend actif (i2v vs t2v, résolution/fps réellement rendus).
@@ -95,75 +153,65 @@ def run_agent(content: str, skill_name: str = "avatar_story", avatar: str = "ima
             f"- le ton général de la mise en scène.\n"
             f"Le mood prime sur les choix par défaut."
         )
+    # Message utilisateur = BRIEF (l'intention) + CONTENU source (si fourni) + inventaire RESSOURCES.
+    user_parts = []
+    if prompt:
+        user_parts.append(f"## BRIEF\n{prompt}")
+    if content:
+        user_parts.append(f"## CONTENU SOURCE\n{content}")
+    ressources_block = _render_ressources(ressources)
+    if ressources_block:
+        user_parts.append(ressources_block)
+    characters_block = _render_characters(characters)
+    if characters_block:
+        user_parts.append(characters_block)
+    user_content = "\n\n".join(user_parts) or content or prompt or "Crée la vidéo demandée."
+
     messages = [{"role": "system", "content": system},
-                {"role": "user", "content": content}]
+                {"role": "user", "content": user_content}]
 
-    for _ in range(max_steps):
-        resp = client.chat.completions.create(
-            model=AGENT_MODEL, messages=messages, tools=tools,
-            tool_choice="auto", max_tokens=4096,
-        )
-        msg = resp.choices[0].message
-        tracer.on_assistant(msg.content, getattr(resp, "usage", None))
+    try:
+        for _ in range(max_steps):
+            resp = client.chat.completions.create(
+                model=agent_model, messages=messages, tools=tools,
+                tool_choice="auto", max_tokens=4096,
+            )
+            msg = resp.choices[0].message
+            tracer.on_assistant(msg.content, getattr(resp, "usage", None))
 
-        tool_calls = msg.tool_calls or []
-        assistant_msg = {"role": "assistant", "content": msg.content or ""}
-        if tool_calls:
-            assistant_msg["tool_calls"] = [
-                {"id": tc.id, "type": "function",
-                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                for tc in tool_calls
-            ]
-        messages.append(assistant_msg)
+            tool_calls = msg.tool_calls or []
+            assistant_msg = {"role": "assistant", "content": msg.content or ""}
+            if tool_calls:
+                assistant_msg["tool_calls"] = [
+                    {"id": tc.id, "type": "function",
+                     "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                    for tc in tool_calls
+                ]
+            messages.append(assistant_msg)
 
-        if not tool_calls:
-            break   # l'agent a fini
+            if not tool_calls:
+                break   # l'agent a fini
 
-        for tc in tool_calls:
-            name = tc.function.name
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            t0 = tracer.on_tool_call(name, args)
-            result = dispatch(session, name, args)
-            ok = result.get("status") == "ok"
-            summary = (result.get("error") if not ok else
-                       result.get("clip") or result.get("final_video") or result.get("note") or "ok")
-            tracer.on_tool_result(name, ok, str(summary), (time.time() - t0) * 1000)
-            messages.append({"role": "tool", "tool_call_id": tc.id,
-                             "content": json.dumps(result, ensure_ascii=False)})
+            for tc in tool_calls:
+                name = tc.function.name
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                t0 = tracer.on_tool_call(name, args)
+                result = dispatch(session, name, args)
+                ok = result.get("status") == "ok"
+                summary = (result.get("error") if not ok else
+                           result.get("clip") or result.get("final_video") or result.get("note") or "ok")
+                tracer.on_tool_result(name, ok, str(summary), (time.time() - t0) * 1000)
+                messages.append({"role": "tool", "tool_call_id": tc.id,
+                                 "content": json.dumps(result, ensure_ascii=False)})
+    finally:
+        # Fin de vidéo : supprime les images web téléchargées (search_web_image).
+        n = cleanup_fetched_images(session)
+        if n:
+            print(f"🧹 {n} image(s) web téléchargée(s) supprimée(s).", flush=True)
 
     tracer.finish(session.final_video)
-    return {"video": session.final_video, "script": session.script}
-
-
-def main():
-    ap = argparse.ArgumentParser(description="Agent vidéo (Claude Opus 4.8 via DeepInfra)")
-    ap.add_argument("text", nargs="?", help="Le script (sinon --file)")
-    ap.add_argument("--file", help="Lire le script depuis un fichier")
-    ap.add_argument("--avatar", default="image.png", help="Chemin local OU URL de l'avatar")
-    ap.add_argument("--skill", default="avatar_story", help="Type de vidéo")
-    ap.add_argument("--scene", nargs="?", const="__default__", default=None,
-                    help="Active le décor FLUX Kontext. Sans valeur: décor par défaut; avec: description custom.")
-    ap.add_argument("--mood", default=None, help="Section mood/ton ajoutée au system prompt")
-    ap.add_argument("--max-steps", type=int, default=20)
-    args = ap.parse_args()
-
-    script = args.text
-    if args.file:
-        with open(args.file, encoding="utf-8") as f:
-            script = f.read()
-    if not script:
-        ap.error("fournis un script (argument positionnel) ou --file")
-
-    apply_scene = args.scene is not None
-    scene_prompt = None if args.scene in (None, "__default__") else args.scene
-
-    result = run_agent(script, skill_name=args.skill, avatar=args.avatar, mood=args.mood,
-                       apply_scene=apply_scene, scene_prompt=scene_prompt, max_steps=args.max_steps)
-    print(f"\n🎬 Vidéo finale: {result['video']}")
-
-
-if __name__ == "__main__":
-    main()
+    article_title = session.article.link.title if session.article else None
+    return {"video": session.final_video, "script": session.script, "article": article_title}

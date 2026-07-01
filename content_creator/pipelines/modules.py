@@ -233,12 +233,19 @@ class NewsScraper:
 
 # --- Article Summarizer ---
 class ArticleSummarizer:
-    def __init__(self):
-        self.client = OpenAI(
-            api_key=API_KEYS["deepinfra_api_key"],
-            base_url=API_KEYS["deepinfra_base_url"],
-        )
-        self.model_name = AI_CONFIG["model_name"]
+    def __init__(self, model_config: dict = None):
+        """`model_config` = ModelConfig {model_name, provider{base_url, token}} du
+        channel (rôle `slm`). Sans config -> globals du .env (comportement historique)."""
+        if model_config:
+            provider = model_config["provider"]
+            self.client = OpenAI(api_key=provider["token"], base_url=provider["base_url"])
+            self.model_name = model_config["model_name"]
+        else:
+            self.client = OpenAI(
+                api_key=API_KEYS["deepinfra_api_key"],
+                base_url=API_KEYS["deepinfra_base_url"],
+            )
+            self.model_name = AI_CONFIG["model_name"]
 
     @classmethod
     def generate_prompt(
@@ -468,25 +475,53 @@ class ArticleSummarizer:
         return emoji_pattern.sub("", text)
 
     def text_to_speech_google(
-        self, text: str, output_file: str = "output.mp3"
+        self, text: str, output_file: str = "output.mp3",
+        voice: str = None, api_key: str = None, base_url: str = None,
+        style: str = None, voice_model: str = None, language: str = None,
     ) -> Optional[str]:
-        """Convert text to speech using Google TTS."""
-        try:
-            body = {
-                "audioConfig": {
-                    "audioEncoding": "MP3",
-                    "effectsProfileId": ["large-home-entertainment-class-device"],
-                    "pitch": AI_CONFIG["tts_voice"]["pitch"],
-                    "speakingRate": AI_CONFIG["tts_voice"]["speaking_rate"],
-                },
-                "input": {"text": text},
-                "voice": {
-                    "languageCode": AI_CONFIG["tts_voice"]["language_code"],
-                    "name": AI_CONFIG["tts_voice"]["name"],
-                },
-            }
+        """Convert text to speech using Google TTS. Tout est PROPAGÉ depuis le channel
+        (voice_generator / characters) ; aucune valeur globale.
 
-            url = f"https://texttospeech.googleapis.com/v1beta1/text:synthesize?key={API_KEYS['google_tts_api_key']}"
+        Deux modes selon `voice_model` :
+        - Gemini TTS (`voice_model` fourni, ex. 'gemini-3.1-flash-tts-preview') : supporte le
+          `style` (instructions de ton via `input.prompt`), endpoint v1beta1, `voice.name` court
+          (ex. 'Achernar'), `language` explicite (ex. 'fr-FR').
+        - Chirp3-HD (défaut) : nom complet (ex. 'fr-FR-Chirp3-HD-Charon'), langue déduite du nom,
+          pas de `style` ni de `pitch`."""
+        try:
+            if not voice or not api_key:
+                print("[Erreur TTS] voix ou clé manquante (à propager depuis le channel "
+                      "voice_generator / characters)")
+                return None
+
+            if voice_model:
+                # --- Gemini TTS : style/prompt supporté, endpoint v1beta1 ---
+                input_obj = {"text": text}
+                if style:
+                    input_obj["prompt"] = style
+                body = {
+                    "audioConfig": {"audioEncoding": "MP3", "speakingRate": 1.0},
+                    "input": input_obj,
+                    "voice": {"languageCode": language or "en-US", "name": voice,
+                              "modelName": voice_model},
+                }
+                root = "https://texttospeech.googleapis.com/v1beta1"
+            else:
+                # --- Chirp3-HD : langue déduite du nom, pas de prompt ni pitch ---
+                parts = voice.split("-")
+                language_code = language or ("-".join(parts[:2]) if len(parts) >= 2 else "fr-FR")
+                body = {
+                    "audioConfig": {
+                        "audioEncoding": "MP3",
+                        "effectsProfileId": ["large-home-entertainment-class-device"],
+                        "speakingRate": 1.0,
+                    },
+                    "input": {"text": text},
+                    "voice": {"languageCode": language_code, "name": voice},
+                }
+                root = (base_url or "https://texttospeech.googleapis.com/v1").rstrip("/")
+
+            url = f"{root}/text:synthesize?key={api_key}"
             headers = {"Content-Type": "application/json"}
 
             response = requests.post(url, headers=headers, json=body, timeout=30)

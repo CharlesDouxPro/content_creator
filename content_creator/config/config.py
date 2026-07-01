@@ -62,27 +62,30 @@ PIPELINE_CONFIG = {
 # ========================
 # API KEYS AND CREDENTIALS
 # ========================
+# Tous les SECRETS proviennent du .env (cf. .env.example). Seules les valeurs NON sensibles
+# (endpoints, ratios, ids de template) gardent un défaut en clair.
 API_KEYS = {
-    "deepinfra_api_key": os.getenv("DEEPINFRA_API_KEY", "7jIPsm1yv398SZpzLaE0qw2DIs2Y5CZG"),
+    "deepinfra_api_key": os.getenv("DEEPINFRA_API_KEY"),
     "deepinfra_base_url": os.getenv("DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai"),
-    "google_tts_api_key": "AIzaSyDD8i61OqNlRjgH7m1oCqQZen308jtvJmw",
-    "creatomate_api_key": "83098d19134640efaf7da1bb70539437cd53351b2eb8b009ff435ffabbfd9b6b45ede9de692b8fdb6f55cf64053e448f",
+    "google_tts_api_key": os.getenv("GOOGLE_TTS_API_KEY"),
+    "creatomate_api_key": os.getenv("CREATOMATE_API_KEY"),
     "creatomate_url": "https://api.creatomate.com/v2/renders",
-    "creatomate_subtitle_template_id": "5869abcc-052a-4f76-a04a-b157fe440ee5",
+    "creatomate_subtitle_template_id": os.getenv(
+        "CREATOMATE_SUBTITLE_TEMPLATE_ID", "5869abcc-052a-4f76-a04a-b157fe440ee5"),
     # Veo3 API settings (Google's video generation)
-    "veo3_api_key": "AIzaSyD76bn26hclSlWL1JeBb-0gZXSTHqTGry8",  # Add your Veo3 API key here
+    "veo3_api_key": os.getenv("VEO3_API_KEY"),
     "veo3_endpoint": "https://veo3.googleapis.com/v1/videos:generate",  # Update with actual endpoint
     # Google Custom Search API settings (for image search)
-    "google_search_api_key": "AIzaSyDD8i61OqNlRjgH7m1oCqQZen308jtvJmw",
-    "google_search_cx": "e5ac4f1ee9fd646c1",
+    "google_search_api_key": os.getenv("GOOGLE_SEARCH_API_KEY"),
+    "google_search_cx": os.getenv("GOOGLE_SEARCH_CX"),
     # RunwayML API settings (for video generation)
-    "runway_api_key": "key_e48b9d655fd970239a3750bf33746e3d51ec81ee99d80081ce29478aebd6bb4aaa145696fac1801de7b732c1acf3e13fb091469891791e037982182f8462ffdf",  # Add your RunwayML API key here
-    "runway_concurrency_limit": 1,  # Tier 1: 1 concurrent task
-    "runway_video_ratio": "9:16",  # Portrait format for TikTok/Instagram
-    "runway_video_duration": 8,  # 8 seconds
+    "runway_api_key": os.getenv("RUNWAY_API_KEY"),
+    "runway_concurrency_limit": 1,
+    "runway_video_ratio": "9:16",
+    "runway_video_duration": 8,
     "runway_model": "gen4_turbo",
     # Pexels API settings (for stock video search)
-    "pexels_api_key": "of0dud4qojl5BCoRziRhwyJJoMaJLhBdoUGFi0ShNEzPQZNlGROsZGl2",  # Your Pexels API key
+    "pexels_api_key": os.getenv("PEXELS_API_KEY"),
 }
 
 # ========================
@@ -142,12 +145,8 @@ VIDEO_BACKEND_CONFIG = {
 AI_CONFIG = {
     "model_name": "openai/gpt-oss-120b",
     "max_tokens": 64000,
-    "tts_voice": {
-        "language_code": "fr-FR",
-        "name": "fr-FR-Chirp3-HD-Vindemiatrix",  # TODO : random choice a voice
-        "speaking_rate": 1,
-        "pitch": 0,
-    },
+    # La voix TTS n'est plus ici : elle est propagée depuis le channel
+    # (models_config.voice_generator + context.characters[*].voice).
 }
 
 # ========================
