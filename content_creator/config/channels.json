@@ -1,0 +1,96 @@
+[
+  {
+    "name": "20min-foot",
+    "skill": "avatar_story",
+    "models": {
+      "master_mind": {
+        "model_name": "anthropic/claude-opus-4-8",
+        "provider_id": "arlq_deepinfra"
+      },
+      "slm": {
+        "model_name": "anthropic/claude-opus-4-8",
+        "provider_id": "arlq_deepinfra"
+      },
+      "lip_sync": {
+        "model_name": "PrunaAI/p-video-avatar",
+        "provider_id": "charles_deepinfra"
+      },
+      "video_generator": {
+        "model_name": "Wan-AI/Wan2.7-R2V",
+        "provider_id": "charles_deepinfra"
+      },
+      "voice_generator": {
+        "model_name": "fr-FR-Chirp3-HD-Vindemiatrix",
+        "provider_id": "google_tts"
+      }
+    },
+    "context": {
+      "prompt": "Crée une vidéo TikTok verticale à partir du premier article foot non traité : accroche forte, narration rythmée, alternance face caméra et b-roll, conclusion qui donne envie de réagir. Raconte l'actualité de manière dynamique",
+      "ressources": {
+        "urls": [
+          "https://www.20minutes.fr/sport/football/"
+        ],
+        "local_paths": [],
+        "audio_paths": []
+      },
+      "mood": "",
+      "characters": {
+        "presenter": {
+          "image": "avatars/avatar_femme_foot.png",
+          "voice": "fr-FR-Chirp3-HD-Kore",
+          "language": "fr-FR",
+          "description": "présentatrice mature, costume, posture assurée"
+        }
+      }
+    }
+  },
+  {
+    "name": "fruits",
+    "skill": "free_creator",
+    "models": {
+      "master_mind": {
+        "model_name": "anthropic/claude-opus-4-8",
+        "provider_id": "arlq_deepinfra"
+      },
+      "slm": {
+        "model_name": "anthropic/claude-opus-4-8",
+        "provider_id": "arlq_deepinfra"
+      },
+      "lip_sync": {
+        "model_name": "PrunaAI/p-video-avatar",
+        "provider_id": "charles_deepinfra"
+      },
+      "video_generator": {
+        "model_name": "Wan-AI/Wan2.7-R2V",
+        "provider_id": "charles_deepinfra"
+      },
+      "voice_generator": {
+        "model_name": "fr-FR-Chirp3-HD-Vindemiatrix",
+        "provider_id": "google_tts"
+      }
+    },
+    "context": {
+      "prompt": "Crée une histoire totalement fictive. C'est l'histoire de 3 petits poneys qui sont enfaite trump khamenei et macron et ont des dialogues pour se battre pour le détroit d'ormuz. Fait une video qui résume avec humour en version annimé cet episode géopolitique. Fais PARLER chaque poney via son personnage (paramètre `character`) pour des voix distinctes ; alterne un personnage par plan pour le dialogue.",
+      "ressources": {
+        "urls": [],
+        "local_paths": [],
+        "audio_paths": []
+      },
+      "mood": "dessin annimé pour adulte",
+      "characters": {
+        "trump": {
+          "voice": "fr-FR-Chirp3-HD-Charon",
+          "description": "petit poney orange à la mèche blonde, ton bravache et théâtral"
+        },
+        "khamenei": {
+          "voice": "fr-FR-Chirp3-HD-Fenrir",
+          "description": "petit poney sombre à turban, ton grave et solennel"
+        },
+        "macron": {
+          "voice": "fr-FR-Chirp3-HD-Iapetus",
+          "description": "petit poney bleu-blanc-rouge, ton posé et un peu pédant"
+        }
+      }
+    }
+  }
+]
