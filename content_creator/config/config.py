@@ -66,12 +66,15 @@ PIPELINE_CONFIG = {
 # (endpoints, ratios, ids de template) gardent un défaut en clair.
 API_KEYS = {
     "deepinfra_api_key": os.getenv("DEEPINFRA_API_KEY"),
-    "deepinfra_base_url": os.getenv("DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai"),
+    "deepinfra_base_url": os.getenv(
+        "DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai"
+    ),
     "google_tts_api_key": os.getenv("GOOGLE_TTS_API_KEY"),
     "creatomate_api_key": os.getenv("CREATOMATE_API_KEY"),
     "creatomate_url": "https://api.creatomate.com/v2/renders",
     "creatomate_subtitle_template_id": os.getenv(
-        "CREATOMATE_SUBTITLE_TEMPLATE_ID", "5869abcc-052a-4f76-a04a-b157fe440ee5"),
+        "CREATOMATE_SUBTITLE_TEMPLATE_ID", "5869abcc-052a-4f76-a04a-b157fe440ee5"
+    ),
     # Veo3 API settings (Google's video generation)
     "veo3_api_key": os.getenv("VEO3_API_KEY"),
     "veo3_endpoint": "https://veo3.googleapis.com/v1/videos:generate",  # Update with actual endpoint

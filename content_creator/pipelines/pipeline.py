@@ -30,7 +30,7 @@ from modules import (
     GCSManager,
     VideoGenerator,
     FullArticle,
-    RenderResponse
+    RenderResponse,
 )
 
 
@@ -55,19 +55,21 @@ class ContentPipeline:
 
         # Parse the URL to get a readable part
         parsed = urlparse(str(article_url))
-        path_parts = parsed.path.strip('/').split('/')
+        path_parts = parsed.path.strip("/").split("/")
 
         # Get the last meaningful part of the URL
         article_slug = path_parts[-1] if path_parts else "article"
 
         # Clean the slug (remove .html, limit length)
-        article_slug = article_slug.replace('.html', '')[:50]
+        article_slug = article_slug.replace(".html", "")[:50]
 
         # Generate the path: media/audio/thematic/date/article-slug-hash/audio.mp3
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = datetime.now().strftime("%Y-%m-%d")
         return f"{GCS_CONFIG['media_paths']['audio']}{self.config['thematic']}/{today}/{article_slug}-{url_hash}/audio.mp3"
 
-    def find_unprocessed_article(self, articles: List[FullArticle]) -> Optional[FullArticle]:
+    def find_unprocessed_article(
+        self, articles: List[FullArticle]
+    ) -> Optional[FullArticle]:
         """Find the first article that hasn't been processed yet."""
         if not self.config.get("skip_processed", True):
             # If skip_processed is False, just return the first article
@@ -82,9 +84,13 @@ class ContentPipeline:
             exists = self.gcs.check_blob_exists(gcs_path)
 
             if exists:
-                print(f"  ⏭️  Article #{i} already processed: {article.link.title[:50]}...")
+                print(
+                    f"  ⏭️  Article #{i} already processed: {article.link.title[:50]}..."
+                )
             else:
-                print(f"  ✅ Article #{i} not processed yet: {article.link.title[:50]}...")
+                print(
+                    f"  ✅ Article #{i} not processed yet: {article.link.title[:50]}..."
+                )
                 return article
 
         return None
@@ -112,7 +118,9 @@ class ContentPipeline:
 
         if not article:
             print("❌ All articles have already been processed. Nothing to do.")
-            print("\nTip: Change the thematic or media_domain in config.py to process different content.")
+            print(
+                "\nTip: Change the thematic or media_domain in config.py to process different content."
+            )
             return
 
         print("\n✏️ Processing article:")
@@ -133,7 +141,9 @@ class ContentPipeline:
 
         # Step 4: Generate audio
         print("\n🎙️ Step 4: Generating text-to-speech audio...")
-        audio_path = os.path.join(self.config["output_dir"], self.config["audio_filename"])
+        audio_path = os.path.join(
+            self.config["output_dir"], self.config["audio_filename"]
+        )
         audio_file = self.summarizer.text_to_speech_google(summary, audio_path)
         if not audio_file:
             print("❌ Failed to generate audio. Exiting.")
@@ -181,7 +191,7 @@ class ContentPipeline:
         video_metadata = {
             "final_video_url": str(final_video.url),
             "created_at": datetime.now().isoformat(),
-            "audio_duration": audio_length
+            "audio_duration": audio_length,
         }
 
         # Save metadata locally first
@@ -205,20 +215,22 @@ class ContentPipeline:
         print("\nRun the pipeline again to process the next unprocessed article!")
 
         # Save results
-        self.save_results({
-            "timestamp": datetime.now().isoformat(),
-            "config": self.config,
-            "article": {
-                "title": article.link.title,
-                "url": str(article.link.href),
-                "published": article.link.published_at.isoformat()
-            },
-            "summary": summary,
-            "audio_url": audio_url,
-            "audio_gcs_path": article_gcs_path,
-            "final_video_url": str(final_video.url),
-            "video_queries": video_queries if video_queries else {}
-        })
+        self.save_results(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "config": self.config,
+                "article": {
+                    "title": article.link.title,
+                    "url": str(article.link.href),
+                    "published": article.link.published_at.isoformat(),
+                },
+                "summary": summary,
+                "audio_url": audio_url,
+                "audio_gcs_path": article_gcs_path,
+                "final_video_url": str(final_video.url),
+                "video_queries": video_queries if video_queries else {},
+            }
+        )
 
     def scrape_articles(self) -> List[FullArticle]:
         """Scrape and process articles from the configured source."""
@@ -239,7 +251,9 @@ class ContentPipeline:
 
         return articles
 
-    def create_video(self, audio_url: str, audio_length: float) -> Optional[RenderResponse]:
+    def create_video(
+        self, audio_url: str, audio_length: float
+    ) -> Optional[RenderResponse]:
         """Create video with configured settings."""
         response = self.video_gen.create_video(
             audio_url=audio_url,
@@ -247,7 +261,7 @@ class ContentPipeline:
             audio_length=audio_length,
             outro_config=self.config["outro_text"],
             outro_duration=self.config["outro_duration"],
-            extra_audio_padding=self.config["extra_audio_padding"]
+            extra_audio_padding=self.config["extra_audio_padding"],
         )
 
         if response:
@@ -272,8 +286,7 @@ class ContentPipeline:
         """Save pipeline results to a JSON file."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         results_path = os.path.join(
-            self.config["output_dir"],
-            f"pipeline_results_{timestamp}.json"
+            self.config["output_dir"], f"pipeline_results_{timestamp}.json"
         )
 
         with open(results_path, "w", encoding="utf-8") as f:
@@ -287,7 +300,7 @@ class ContentPipeline:
         prefix = f"{GCS_CONFIG['media_paths']['audio']}{self.config['thematic']}/"
         blobs = self.gcs.list_blobs_with_prefix(prefix)
 
-        audio_files = [b for b in blobs if b.endswith('/audio.mp3')]
+        audio_files = [b for b in blobs if b.endswith("/audio.mp3")]
 
         if audio_files:
             print(f"Found {len(audio_files)} processed articles:")
@@ -306,6 +319,7 @@ def main():
 
         # Optional: Add a command to list processed articles
         import sys
+
         if len(sys.argv) > 1 and sys.argv[1] == "--list":
             pipeline.list_processed_articles()
         else:
@@ -316,6 +330,7 @@ def main():
     except Exception as e:
         print(f"\n\n❌ Pipeline failed with error: {e}")
         import traceback
+
         traceback.print_exc()
 
 
