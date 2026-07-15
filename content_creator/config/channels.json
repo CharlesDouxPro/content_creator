@@ -20,8 +20,8 @@
         "provider_id": "charles_deepinfra"
       },
       "voice_generator": {
-        "model_name": "fr-FR-Chirp3-HD-Vindemiatrix",
-        "provider_id": "google_tts"
+        "model_name": "nPczCjzI2devNBz1zQrb",
+        "provider_id": "elevenlabs"
       }
     },
     "context": {
@@ -37,8 +37,7 @@
       "characters": {
         "presenter": {
           "image": "avatars/avatar_femme_foot.png",
-          "voice": "fr-FR-Chirp3-HD-Kore",
-          "language": "fr-FR",
+          "voice": "EXAVITQu4vr4xnSDxMaL",
           "description": "présentatrice mature, costume, posture assurée"
         }
       }
@@ -61,12 +60,12 @@
         "provider_id": "charles_deepinfra"
       },
       "video_generator": {
-        "model_name": "Wan-AI/Wan2.7-R2V",
+        "model_name": "Wan-AI/Wan2.2-T2V-A14B",
         "provider_id": "charles_deepinfra"
       },
       "voice_generator": {
-        "model_name": "fr-FR-Chirp3-HD-Vindemiatrix",
-        "provider_id": "google_tts"
+        "model_name": "nPczCjzI2devNBz1zQrb",
+        "provider_id": "elevenlabs"
       }
     },
     "context": {
@@ -79,15 +78,15 @@
       "mood": "dessin annimé pour adulte",
       "characters": {
         "trump": {
-          "voice": "fr-FR-Chirp3-HD-Charon",
+          "voice": "pNInz6obpgDQGcFmaJgB",
           "description": "petit poney orange à la mèche blonde, ton bravache et théâtral"
         },
         "khamenei": {
-          "voice": "fr-FR-Chirp3-HD-Fenrir",
+          "voice": "nPczCjzI2devNBz1zQrb",
           "description": "petit poney sombre à turban, ton grave et solennel"
         },
         "macron": {
-          "voice": "fr-FR-Chirp3-HD-Iapetus",
+          "voice": "JBFqnCBsd6RMkjVDRZzb",
           "description": "petit poney bleu-blanc-rouge, ton posé et un peu pédant"
         }
       }

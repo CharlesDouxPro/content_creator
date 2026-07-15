@@ -18,6 +18,7 @@ export type ModelsInfo = S['ModelsInfo']
 export type CharacterAsset = S['CharacterAsset']
 export type VideoItem = S['VideoItem']
 export type RunInfo = S['RunInfo']
+export type ElevenLabsVoice = S['ElevenLabsVoice']
 
 export type Role = keyof ModelPool
 export const ROLES: Role[] = [

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useCatalog } from '../catalog'
 import { api } from '../api/client'
-import type { Channel, Character, CharacterAsset } from '../api/schemas'
+import type { Channel, Character, CharacterAsset, ElevenLabsVoice } from '../api/schemas'
 import { ROLES } from '../api/schemas'
 import { clone, composeChirp3, normalize } from '../lib'
 import type { FullChannel } from '../lib'
@@ -14,20 +14,27 @@ interface Props {
 export function ChannelEditor({ value, onChange }: Props) {
   const { skills, providers, voices, models } = useCatalog()
   const [library, setLibrary] = useState<CharacterAsset[]>([])
-  useEffect(() => { api.library().then(setLibrary).catch(() => {}) }, [])
+  const [elVoices, setElVoices] = useState<ElevenLabsVoice[]>([])
+  useEffect(() => {
+    api.library().then(setLibrary).catch(() => {})
+    api.elevenLabsVoices().then(setElVoices).catch(() => {})
+  }, [])
 
   const v = normalize(value)
 
   // Applique une mutation sur une copie pleine et remonte le nouveau channel.
   const set = (mut: (c: FullChannel) => void) => { const next = clone(v); mut(next); onChange(next) }
 
-  // Voix Chirp3 pré-composées (autocomplétion), toutes langues.
-  const voiceOptions: string[] = []
+  // Options de voix : ElevenLabs (id -> nom) si dispo, sinon repli Chirp3 (Google) composé.
+  const elevenOptions = elVoices.map((vo) => ({ value: vo.voice_id, label: vo.name }))
+  const chirpOptions: { value: string; label: string }[] = []
   for (const lang of voices.languages) {
     for (const name of [...voices.chirp3.male, ...voices.chirp3.female]) {
-      voiceOptions.push(composeChirp3(name, lang))
+      const vv = composeChirp3(name, lang)
+      chirpOptions.push({ value: vv, label: vv })
     }
   }
+  const voiceOptions = elevenOptions.length ? elevenOptions : chirpOptions
 
   const characters = Object.entries(v.context.characters)
 
@@ -126,7 +133,7 @@ export function ChannelEditor({ value, onChange }: Props) {
       {/* ---- Personnages ---- */}
       <fieldset>
         <legend>Personnages</legend>
-        <datalist id="dl-voices">{voiceOptions.map((vo) => <option key={vo} value={vo} />)}</datalist>
+        <datalist id="dl-voices">{voiceOptions.map((vo) => <option key={vo.value} value={vo.value}>{vo.label}</option>)}</datalist>
         <datalist id="dl-images">{library.map((a) => <option key={a.blob} value={a.url}>{a.name}</option>)}</datalist>
         <div className="characters">
           {characters.map(([key, ch]) => (
@@ -148,8 +155,8 @@ export function ChannelEditor({ value, onChange }: Props) {
                       onChange={(e) => updateCharacter(key, { image: e.target.value || null })} />
                   </label>
                   <label className="field">
-                    <span>Voix</span>
-                    <input list="dl-voices" value={ch.voice ?? ''} placeholder="fr-FR-Chirp3-HD-Kore"
+                    <span>Voix {elVoices.length ? '(ElevenLabs)' : ''}</span>
+                    <input list="dl-voices" value={ch.voice ?? ''} placeholder="voix (choisis dans la liste)"
                       onChange={(e) => updateCharacter(key, { voice: e.target.value || null })} />
                   </label>
                   <label className="field">

@@ -3,6 +3,7 @@ catalog.py — Données de référence (lecture seule) pour peupler les menus du
 skills disponibles, catalogue de voix, providers, modèles suggérés par rôle.
 """
 
+import requests
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -42,6 +43,12 @@ class ModelsInfo(BaseModel):
     roles: list[str]
     defaults: dict[str, ModelSpecOut]
     suggestions: dict[str, list[str]]
+
+
+class ElevenLabsVoice(BaseModel):
+    voice_id: str
+    name: str
+    labels: dict[str, str] = {}
 
 
 @router.get("/skills", response_model=list[SkillInfo])
@@ -87,6 +94,30 @@ def catalog_models() -> ModelsInfo:
         "slm": ["anthropic/claude-opus-4-8", "anthropic/claude-haiku-4-5", "openai/gpt-oss-120b"],
         "lip_sync": ["PrunaAI/p-video-avatar"],
         "video_generator": ["Wan-AI/Wan2.7-R2V"],
-        "voice_generator": ["fr-FR-Chirp3-HD-Vindemiatrix", "fr-FR-Chirp3-HD-Kore", "fr-FR-Chirp3-HD-Charon"],
+        # ElevenLabs voice_id par défaut (Brian / Adam / Sarah). Voir GET /catalog/elevenlabs-voices.
+        "voice_generator": ["nPczCjzI2devNBz1zQrb", "pNInz6obpgDQGcFmaJgB", "EXAVITQu4vr4xnSDxMaL"],
     }
     return ModelsInfo(roles=list(ROLES), defaults=defaults, suggestions=suggestions)
+
+
+@router.get("/elevenlabs-voices", response_model=list[ElevenLabsVoice])
+def elevenlabs_voices() -> list[ElevenLabsVoice]:
+    """Voix du compte ElevenLabs (id + nom + labels). Vide si la clé est absente/invalide."""
+    token = (PROVIDERS.get("elevenlabs") or {}).get("token")
+    if not token:
+        return []
+    try:
+        r = requests.get("https://api.elevenlabs.io/v1/voices",
+                         headers={"xi-api-key": token}, timeout=20)
+        r.raise_for_status()
+        voices = r.json().get("voices", [])
+    except Exception:
+        return []
+    return [
+        ElevenLabsVoice(
+            voice_id=v.get("voice_id", ""),
+            name=v.get("name", ""),
+            labels={k: str(val) for k, val in (v.get("labels") or {}).items()},
+        )
+        for v in voices if v.get("voice_id")
+    ]

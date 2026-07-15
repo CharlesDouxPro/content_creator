@@ -1,7 +1,7 @@
 // Petit client fetch typé. Toutes les routes sont relatives (proxy Vite -> FastAPI).
 import type {
   Channel, SkillInfo, ProviderInfo, VoicesInfo, ModelsInfo,
-  CharacterAsset, VideoItem, RunInfo,
+  CharacterAsset, VideoItem, RunInfo, ElevenLabsVoice,
 } from './schemas'
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -27,6 +27,7 @@ export const api = {
   providers: () => req<ProviderInfo[]>('/api/catalog/providers'),
   voices: () => req<VoicesInfo>('/api/catalog/voices'),
   models: () => req<ModelsInfo>('/api/catalog/models'),
+  elevenLabsVoices: () => req<ElevenLabsVoice[]>('/api/catalog/elevenlabs-voices'),
 
   // Channels
   listChannels: () => req<Channel[]>('/api/channels'),

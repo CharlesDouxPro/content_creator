@@ -544,6 +544,44 @@ class ArticleSummarizer:
             print(f"[Erreur réseau TTS] {e}")
             return None
 
+    def text_to_speech_elevenlabs(
+        self, text: str, output_file: str = "output.mp3",
+        voice: str = None, api_key: str = None, model: str = None, base_url: str = None,
+    ) -> Optional[str]:
+        """Synthèse vocale via ElevenLabs. Tout est PROPAGÉ depuis le channel :
+        `voice` = voice_id ElevenLabs (character.voice ou voice_generator.model_name par défaut),
+        `api_key` = ELEVENLABS_API_KEY, `model` = model_id (défaut 'eleven_multilingual_v2',
+        multilingue, gère le français). Réponse = MP3 binaire écrit tel quel."""
+        try:
+            if not voice or not api_key:
+                print("[Erreur TTS] voice_id ou clé ElevenLabs manquant(e) (à propager depuis le "
+                      "channel voice_generator / characters)")
+                return None
+            root = (base_url or "https://api.elevenlabs.io").rstrip("/")
+            url = f"{root}/v1/text-to-speech/{voice}"
+            headers = {"xi-api-key": api_key, "Content-Type": "application/json",
+                       "Accept": "audio/mpeg"}
+            body = {"text": text, "model_id": model or "eleven_multilingual_v2"}
+            # Retry/backoff sur 429 (limite de concurrence ElevenLabs : les plans sont rendus
+            # en parallèle). On respecte `retry-after` si fourni, sinon backoff exponentiel.
+            response = None
+            for attempt in range(6):
+                response = requests.post(url, headers=headers, json=body, timeout=60)
+                if response.status_code != 429:
+                    break
+                wait = float(response.headers.get("retry-after") or min(2 ** attempt, 20))
+                print(f"[TTS ElevenLabs] 429 (concurrence) — retry dans {wait:.0f}s "
+                      f"(tentative {attempt + 1}/6)")
+                time.sleep(wait)
+            response.raise_for_status()
+            with open(output_file, "wb") as f:
+                f.write(response.content)
+            print(f"[OK] Fichier audio enregistré (ElevenLabs) : {output_file}")
+            return output_file
+        except requests.exceptions.RequestException as e:
+            print(f"[Erreur réseau TTS ElevenLabs] {e}")
+            return None
+
 
 # --- Google Cloud Storage Manager ---
 class GCSManager:

@@ -11,6 +11,7 @@ import os
 import json
 import base64
 import subprocess
+import urllib.parse
 from dataclasses import dataclass
 
 import requests
@@ -99,7 +100,16 @@ def _deepinfra_inference(model_config: dict, fallback_url: str) -> tuple[str, st
 
 
 def download(url: str, dest: str) -> str:
-    """Télécharge une URL vers un fichier local."""
+    """Télécharge une URL vers un fichier local. Gère aussi les DATA URIs
+    (`data:<mime>;base64,<...>`) que certains modèles renvoient dans `video_url`
+    (ex. Wan T2V sur DeepInfra) au lieu d'une URL HTTPS."""
+    if url.startswith("data:"):
+        header, _, payload = url.partition(",")
+        data = base64.b64decode(payload) if "base64" in header \
+            else urllib.parse.unquote_to_bytes(payload)
+        with open(dest, "wb") as f:
+            f.write(data)
+        return dest
     r = requests.get(url, stream=True, timeout=300)
     r.raise_for_status()
     with open(dest, "wb") as f:
@@ -243,11 +253,17 @@ def concat_clips(clips: list, out: str) -> str:
 def synthesize_audio(summarizer: ArticleSummarizer, text: str, out: str,
                      voice: str = None, api_key: str = None, base_url: str = None,
                      style: str = None, voice_model: str = None, language: str = None) -> tuple:
-    """Génère l'audio de narration (Google TTS). Tout est propagé depuis le channel
-    (voice_generator / character) : `voice`, `style` (ton, Gemini TTS), `voice_model`, `language`,
-    `api_key`, `base_url`. Retourne (chemin, durée_sec)."""
-    summarizer.text_to_speech_google(text, out, voice=voice, api_key=api_key, base_url=base_url,
-                                     style=style, voice_model=voice_model, language=language)
+    """Génère l'audio de narration. Le MOTEUR est choisi d'après le provider du
+    voice_generator (base_url) : ElevenLabs si base_url pointe vers elevenlabs.io, sinon
+    Google TTS. Tout est propagé depuis le channel (voice_generator / character) :
+    `voice`, `style` (Gemini), `voice_model` (= model_id ElevenLabs OU modèle Gemini),
+    `language`, `api_key`, `base_url`. Retourne (chemin, durée_sec)."""
+    if base_url and "elevenlabs" in base_url:
+        summarizer.text_to_speech_elevenlabs(text, out, voice=voice, api_key=api_key,
+                                             model=voice_model, base_url=base_url)
+    else:
+        summarizer.text_to_speech_google(text, out, voice=voice, api_key=api_key, base_url=base_url,
+                                         style=style, voice_model=voice_model, language=language)
     return out, ffprobe_duration(out)
 
 
@@ -385,16 +401,20 @@ def generate_broll(shot: str, duration: int, seed: int, media: list, dest: str,
         )
 
     url, token = _deepinfra_inference(model_config, WAN_URL)
-    data = deepinfra_post(url, {
+    payload = {
         "prompt": prompt,
-        "media": media,
         "negative_prompt": NEGATIVE_PROMPT,
         "resolution": RESOLUTION,
         "ratio": RATIO,
         "duration": duration,
         "watermark": False,
         "seed": seed,
-    }, token=token)
+    }
+    # `media` (image de réf) UNIQUEMENT si présent : les modèles T2V (texte->vidéo, ex.
+    # Wan2.2-T2V) rejettent une liste vide ; les modèles R2V/I2V l'exigent non vide.
+    if media:
+        payload["media"] = media
+    data = deepinfra_post(url, payload, token=token)
     url = data.get("video_url")
     if not url:
         raise RuntimeError(f"Wan: pas de video_url ({json.dumps(data)[:200]})")

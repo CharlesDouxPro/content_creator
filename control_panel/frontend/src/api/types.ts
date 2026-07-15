@@ -72,6 +72,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/catalog/elevenlabs-voices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Elevenlabs Voices
+         * @description Voix du compte ElevenLabs (id + nom + labels). Vide si la clé est absente/invalide.
+         */
+        get: operations["elevenlabs_voices_api_catalog_elevenlabs_voices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/channels": {
         parameters: {
             query?: never;
@@ -279,6 +299,20 @@ export interface components {
             /** Characters */
             characters?: {
                 [key: string]: components["schemas"]["Character"];
+            };
+        };
+        /** ElevenLabsVoice */
+        ElevenLabsVoice: {
+            /** Voice Id */
+            voice_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Labels
+             * @default {}
+             */
+            labels: {
+                [key: string]: string;
             };
         };
         /** HTTPValidationError */
@@ -514,6 +548,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelsInfo"];
+                };
+            };
+        };
+    };
+    elevenlabs_voices_api_catalog_elevenlabs_voices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ElevenLabsVoice"][];
                 };
             };
         };

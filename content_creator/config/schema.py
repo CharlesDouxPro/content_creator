@@ -49,6 +49,12 @@ PROVIDERS: dict[str, ProviderConfig] = {
         "base_url": "https://texttospeech.googleapis.com/v1",
         "token": str(API_KEYS.get("google_tts_api_key") or ""),
     },
+    # Synthèse vocale ElevenLabs : token = ELEVENLABS_API_KEY. Le `model_name` du rôle
+    # voice_generator (ou character.voice) = un voice_id ElevenLabs.
+    "elevenlabs": {
+        "base_url": "https://api.elevenlabs.io",
+        "token": os.getenv("ELEVENLABS_API_KEY", ""),
+    },
 }
 
 ROLES = ("master_mind", "slm", "lip_sync", "video_generator", "voice_generator")
@@ -159,7 +165,9 @@ DEFAULT_POOL = ModelPool(
     slm=ModelSpec(model_name="anthropic/claude-opus-4-8", provider_id="arlq_deepinfra"),
     lip_sync=ModelSpec(model_name="PrunaAI/p-video-avatar", provider_id="charles_deepinfra"),
     video_generator=ModelSpec(model_name="Wan-AI/Wan2.7-R2V", provider_id="charles_deepinfra"),
-    voice_generator=ModelSpec(model_name="fr-FR-Chirp3-HD-Vindemiatrix", provider_id="google_tts"),
+    # Voix par défaut = ElevenLabs (model_name = voice_id ElevenLabs utilisé si un personnage
+    # ne précise pas sa voix). Ici "Brian" (voix narrateur grave).
+    voice_generator=ModelSpec(model_name="nPczCjzI2devNBz1zQrb", provider_id="elevenlabs"),
 )
 
 
