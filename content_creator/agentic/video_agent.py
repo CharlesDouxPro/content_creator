@@ -141,7 +141,7 @@ def run_agent(content: str = None, skill_name: str = "avatar_story",
     tools = openai_tool_schemas(skill.tool_names)
     # skill (réalisation) + compétence de prompting du moteur vidéo (LTX), ADAPTÉE
     # au backend actif (i2v vs t2v, résolution/fps réellement rendus).
-    system = skill.system_prompt + "\n\n" + build_prompt_guide()
+    system = skill.system_prompt + "\n\n" + build_prompt_guide(skill.tool_names)
     if mood:   # le mood pilote les CHOIX DE RÉALISATION du master (sinon: réalisation classique)
         system += (
             f"\n\n## MOOD (priorité haute)\n"
@@ -206,6 +206,18 @@ def run_agent(content: str = None, skill_name: str = "avatar_story",
                 tracer.on_tool_result(name, ok, str(summary), (time.time() - t0) * 1000)
                 messages.append({"role": "tool", "tool_call_id": tc.id,
                                  "content": json.dumps(result, ensure_ascii=False)})
+
+        # FILET DE SÉCURITÉ : l'agent s'est arrêté (ou a épuisé max_steps) avec des plans
+        # planifiés mais SANS produire de vidéo finale (oubli d'assemble_video, ou détournement
+        # de retry_plan). On assemble automatiquement pour ne pas perdre le travail.
+        if session.final_video is None and session.plan:
+            print("⚠️ assemble_video non appelé par l'agent — assemblage automatique de secours.", flush=True)
+            t0 = tracer.on_tool_call("assemble_video", {"auto": True})
+            result = dispatch(session, "assemble_video", {})
+            ok = result.get("status") == "ok"
+            tracer.on_tool_result("assemble_video", ok,
+                                  str(result.get("final_video") or result.get("error")),
+                                  (time.time() - t0) * 1000)
     finally:
         # Fin de vidéo : supprime les images web téléchargées (search_web_image).
         n = cleanup_fetched_images(session)

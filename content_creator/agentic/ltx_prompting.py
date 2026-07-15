@@ -70,9 +70,31 @@ stands blurred and quiet in the background. Calm, contemplative atmosphere, shal
 
 DIALOGUE (si le plan parle) : mets le texte entre guillemets, précise langue/accent, et découpe en
 courtes répliques avec une indication de jeu (geste, pause, regard) entre chaque.
-
-LIPDUB (doublage / remplacement de voix, vidéo→vidéo) : workflow DISTINCT — voir LIPDUB_GUIDE.
 """
+
+
+# Tools qui déclenchent l'injection du LIPDUB_GUIDE (doublage vidéo→vidéo, IC-LoRA).
+# Tant qu'aucun tool lipdub n'est enregistré, le guide reste dormant (pas de référence
+# fantôme dans le system prompt). Ajoute ici le nom du tool le jour où tu l'exposes.
+LIPDUB_TOOL_NAMES = frozenset({"add_lipdub_clip"})
+
+
+# Règle TOUJOURS injectée quand le skill peut faire parler un avatar à l'écran
+# (tool `add_talking_clip` disponible) : un personnage qui parle À L'IMAGE doit
+# TOUJOURS être lip-syncé, quel que soit le type de vidéo.
+LIPSYNC_TOOL_NAMES = frozenset({"add_talking_clip"})
+
+LIPSYNC_POLICY = """\
+# LIP-SYNC — un personnage qui PARLE À L'ÉCRAN a TOUJOURS les lèvres synchronisées
+
+RÈGLE (prioritaire, quel que soit le type de vidéo) : dès qu'un personnage possédant un
+avatar (portrait) doit PARLER À L'IMAGE, planifie ce segment avec `add_talking_clip`
+(lip-sync). Ne le montre JAMAIS en train de parler via un plan b-roll ou média sans
+lip-sync : des lèvres désynchronisées sont un artefact rédhibitoire.
+
+La VOIX OFF (b-roll / média sans lip-sync) reste réservée aux passages où le personnage
+n'est PAS visible en train de parler : narration hors-champ, plans d'ambiance,
+illustration. Si le sujet parle et qu'on le voit, c'est `add_talking_clip`."""
 
 
 LIPDUB_GUIDE = """\
@@ -107,22 +129,33 @@ BONNES PRATIQUES :
 # LTX local (USE_LTX_BROLL / USE_LTX_LIPSYNC). En i2v, l'IMAGE fournit déjà la scène
 # (décor, sujet, palette) : décrire à nouveau la scène entre en conflit avec l'image.
 _LTX_I2V_GUIDE = """\
-# MODE ACTIF — IMAGE-TO-VIDEO (serveur LTX local)
+# MODE ACTIF — serveur LTX local : DEUX RÉGIMES selon le plan
 
-Le moteur reçoit une IMAGE de référence (le portrait/décor de l'avatar) PLUS ton prompt.
-L'image FOURNIT DÉJÀ la scène : décor, sujet, vêtements, palette, cadrage initial.
+Règle d'or : quand le moteur part d'une IMAGE de référence (image-to-video), l'image FOURNIT
+DÉJÀ le décor + le sujet + l'apparence. Redécrire tout ça dans le prompt ENTRE EN CONFLIT avec
+l'image → visages déformés, scènes surréalistes. C'est LA cause n°1 d'artefacts. Distingue donc :
 
-DONC, dans `shot_description`, décris UNIQUEMENT ce qui n'est pas dans l'image :
-- le MOUVEMENT du sujet (gestes, démarche, regard qui se tourne…),
-- le COMPORTEMENT de la CAMÉRA (slow push in, handheld tracking, pan, static…) et
-  l'état du plan APRÈS le mouvement,
-- l'AUDIO/l'ambiance si pertinent.
-NE redécris PAS la scène/le décor/l'apparence déjà visibles sur l'image (ça crée des
-incohérences). Reste bref (2–4 phrases), au présent, en anglais, un seul plan continu.
+1) PLAN AVEC RÉFÉRENCE D'IMAGE (tête parlante `add_talking_clip` ; b-roll `add_broll_clip`
+   AVEC `character` ; b-roll avec `reference_image`) → IMAGE-TO-VIDEO.
+   Dans le prompt, décris UNIQUEMENT :
+   - le MOUVEMENT du sujet (gestes, démarche, regard qui se tourne…),
+   - la CAMÉRA (slow push in, handheld tracking, pan, static…) et l'état du plan APRÈS,
+   - l'AUDIO/l'ambiance si pertinent.
+   NE redécris PAS le décor, les vêtements, le visage : ils viennent de l'image.
+   Exemple : "The camera slowly pushes in as the subject turns toward the lens and gives a
+   calm, confident nod; subtle natural motion, shallow depth of field, soft room tone."
 
-EXEMPLE (i2v, b-roll) :
-"The camera slowly pushes in as the man turns his head toward the lens and gives a calm,
-confident nod; subtle natural motion, shallow depth of field, soft ambient room tone."
+2) PLAN D'AMBIANCE / CUTAWAY SANS ton personnage (stade, foule, objet, paysage…) → appelle
+   `add_broll_clip` SANS `character` : c'est du TEXT-TO-VIDEO, le moteur génère tout depuis ton
+   texte. LÀ tu décris la SCÈNE COMPLÈTE (cadrage + lumière + palette + action + caméra), en
+   détail (prompt long = meilleur rendu).
+   Exemple : "Cinematic wide shot inside a packed stadium at night, vibrant floodlights, fans in
+   colorful jerseys waving flags and chanting, confetti drifting, handheld camera sweeping across
+   the crowd, shallow depth of field, electric festive atmosphere, roaring crowd ambience."
+
+NE JAMAIS mettre ton personnage (`character`) sur un plan d'ambiance où il n'apparaît pas : ancrer
+un portrait studio à une scène de stade produit un rendu déformé. Reste bref en i2v (2–4 phrases),
+détaillé en t2v.
 
 PARAMÈTRES PAR PLAN (optionnels) — `add_talking_clip` / `add_broll_clip` acceptent :
 - `duration_s` : durée du plan (défaut = longueur de la narration). Étire un plan
@@ -153,16 +186,28 @@ def _format_specs() -> str:
 """
 
 
-def build_prompt_guide() -> str:
-    """Assemble le guide de prompting ADAPTÉ AU BACKEND ACTIF.
+def build_prompt_guide(tool_names=None) -> str:
+    """Assemble le guide de prompting ADAPTÉ AU BACKEND ACTIF et aux TOOLS du skill.
 
     - DeepInfra (défaut) : guide classique (l'image de réf existe aussi côté Wan, mais
       la doc historique reste valable) + rappel de format.
     - LTX local (i2v) : ajoute la section i2v (mouvement/caméra, pas la scène).
-    """
+    - LipDub : ajoute LIPDUB_GUIDE UNIQUEMENT si le skill expose un tool lipdub
+      (cf. LIPDUB_TOOL_NAMES) — sinon le guide reste dormant (pas de référence fantôme).
+    `tool_names` = liste des tools du skill (None => tous les tools enregistrés)."""
     c = VIDEO_BACKEND_CONFIG
     parts = [LTX_PROMPT_GUIDE, _format_specs()]
     if c["use_ltx_broll"] or c["use_ltx_lipsync"]:
         parts.append(_LTX_I2V_GUIDE)
+    # tool_names=None => créateur libre (accès à TOUS les tools) : on résout la liste
+    # réelle des tools enregistrés pour décider des sections conditionnelles.
+    from content_creator.agentic.video_tools import TOOLS
+    available = set(tool_names) if tool_names is not None else set(TOOLS)
+    # Politique lip-sync : dès que le skill peut faire parler un avatar à l'écran.
+    if available & LIPSYNC_TOOL_NAMES:
+        parts.append(LIPSYNC_POLICY)
+    # LipDub (doublage vidéo→vidéo) : uniquement si un tool lipdub est enregistré.
+    if available & LIPDUB_TOOL_NAMES:
+        parts.append(LIPDUB_GUIDE)
     return "\n\n".join(parts)
 

@@ -14,8 +14,12 @@ USE_LTX_BROLL / USE_LTX_LIPSYNC dans le .env).
 
 Contraintes du serveur (gérées ici) :
   - résolution multiple de 64 (le serveur arrondit, mais on envoie déjà du propre),
-  - num_frames au format 8k+1 (snappé ici via _snap_frames),
-  - 1 seul GPU (gpu_limit=1) -> on envoie les requêtes UNE PAR UNE (pas de parallèle).
+  - num_frames au format 8k+1 (snappé ici via _snap_frames).
+
+Concurrence : le serveur gère un pool multi-GPU + file d'attente (gpu_limit). Le client
+peut donc envoyer PLUSIEURS requêtes en parallèle (cf. RENDER_MAX_WORKERS dans video_tools,
+défaut 20) ; chaque appel utilise sa propre connexion (pas de Session partagée -> pas de
+plafond urllib3). Les requêtes au-delà de la capacité serveur patientent dans sa file.
 """
 
 import os
