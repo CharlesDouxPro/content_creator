@@ -23,7 +23,7 @@ from typing import Optional, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from content_creator.config.config import API_KEYS
+from content_creator.config.config import API_KEYS, VIDEO_BACKEND_CONFIG
 from content_creator.agentic.video_skills import list_skills
 
 # ============================================================================
@@ -55,6 +55,16 @@ PROVIDERS: dict[str, ProviderConfig] = {
         "base_url": "https://api.elevenlabs.io",
         "token": os.getenv("ELEVENLABS_API_KEY", ""),
     },
+    # Serveur LTX-2.3 LOCAL (cf. repo LTX-video-server). Choisir ce provider sur le rôle
+    # video_generator et/ou lip_sync -> ce channel génère via le serveur LTX (POST /generate,
+    # /lipsync) au lieu de DeepInfra. Pas de token (serveur local sans auth). Le `model_name`
+    # est cosmétique côté client : c'est le serveur qui décide du checkpoint chargé ; c'est le
+    # provider_id qui aiguille le backend (cf. capabilities._is_ltx_provider). L'URL/timeout du
+    # serveur restent pilotés par VIDEO_BACKEND_CONFIG (LTX_SERVER_URL, LTX_TIMEOUT).
+    "ltx_local": {
+        "base_url": str(VIDEO_BACKEND_CONFIG["ltx_server_url"]),
+        "token": "",
+    },
 }
 
 ROLES = ("master_mind", "slm", "lip_sync", "video_generator", "voice_generator")
@@ -66,6 +76,7 @@ ROLES = ("master_mind", "slm", "lip_sync", "video_generator", "voice_generator")
 # ============================================================================
 class ModelConfig(TypedDict):
     model_name: str
+    provider_id: str          # conservé jusqu'à l'aval pour aiguiller le backend (ex. LTX local)
     provider: ProviderConfig
 
 
@@ -177,7 +188,11 @@ DEFAULT_POOL = ModelPool(
 def resolve_pool(pool: ModelPool) -> PoolModelConfig:
     """ModelPool éditable -> PoolModelConfig résolu (provider_id -> {base_url, token})."""
     return {  # type: ignore[return-value]
-        role: {"model_name": spec.model_name, "provider": PROVIDERS[spec.provider_id]}
+        role: {
+            "model_name": spec.model_name,
+            "provider_id": spec.provider_id,
+            "provider": PROVIDERS[spec.provider_id],
+        }
         for role, spec in ((r, getattr(pool, r)) for r in ROLES)
     }
 

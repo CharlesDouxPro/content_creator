@@ -76,19 +76,19 @@ def _render_ressources(ressources: dict) -> str:
         return ""
     lines = []
     labels = {
-        "urls": "URLs (pages à scraper / médias distants)",
-        "local_paths": "Fichiers locaux (clips vidéo / images à monter)",
-        "audio_paths": "Pistes audio (musique / voix off)",
+        "urls": "URLs (pages to scrape / remote media)",
+        "local_paths": "Local files (video clips / images to edit)",
+        "audio_paths": "Audio tracks (music / voice-over)",
     }
     for key, label in labels.items():
         items = ressources.get(key) or []
         if items:
-            lines.append(f"- {label} :")
+            lines.append(f"- {label}:")
             lines += [f"    - {it}" for it in items]
     notes = ressources.get("notes")
     if notes:
-        lines.append(f"- Notes : {notes}")
-    return "## RESSOURCES DISPONIBLES\n" + "\n".join(lines) if lines else ""
+        lines.append(f"- Notes: {notes}")
+    return "## AVAILABLE RESOURCES\n" + "\n".join(lines) if lines else ""
 
 
 def _render_characters(characters: dict) -> str:
@@ -96,12 +96,12 @@ def _render_characters(characters: dict) -> str:
     et s'ils ont un avatar (lip-sync possible) ou non (b-roll / voix off seulement)."""
     if not characters:
         return ""
-    lines = ["## PERSONNAGES (passe le NOM exact via le paramètre `character` des tools)"]
+    lines = ["## CHARACTERS (pass the exact NAME via the tools' `character` parameter)"]
     for name, c in characters.items():
         bits = [c["description"]] if c.get("description") else []
-        bits.append("avatar dispo (lip-sync OK)" if c.get("image")
-                    else "pas d'avatar (b-roll / voix off)")
-        lines.append(f"- {name} : {'; '.join(bits)}")
+        bits.append("avatar available (lip-sync OK)" if c.get("image")
+                    else "no avatar (b-roll / voice-over)")
+        lines.append(f"- {name}: {'; '.join(bits)}")
     return "\n".join(lines)
 
 
@@ -144,28 +144,28 @@ def run_agent(content: str = None, skill_name: str = "avatar_story",
     system = skill.system_prompt + "\n\n" + build_prompt_guide(skill.tool_names)
     if mood:   # le mood pilote les CHOIX DE RÉALISATION du master (sinon: réalisation classique)
         system += (
-            f"\n\n## MOOD (priorité haute)\n"
-            f"Le mood/l'intention de cette vidéo est : « {mood} ».\n"
-            f"Adapte TOUS tes choix de réalisation à ce mood :\n"
-            f"- le décor (`set_scene_background`),\n"
-            f"- l'équilibre plans parlés / b-roll et le rythme,\n"
-            f"- les `shot_description` (cadrage, lumière, mouvement, énergie),\n"
-            f"- le ton général de la mise en scène.\n"
-            f"Le mood prime sur les choix par défaut."
+            f"\n\n## MOOD (high priority)\n"
+            f"The mood/intent of this video is: \"{mood}\".\n"
+            f"Adapt ALL your directing choices to this mood:\n"
+            f"- the background (`set_scene_background`),\n"
+            f"- the talking / b-roll balance and the pacing,\n"
+            f"- the `shot_description` (framing, light, movement, energy),\n"
+            f"- the overall tone of the staging.\n"
+            f"The mood prevails over the default choices."
         )
     # Message utilisateur = BRIEF (l'intention) + CONTENU source (si fourni) + inventaire RESSOURCES.
     user_parts = []
     if prompt:
         user_parts.append(f"## BRIEF\n{prompt}")
     if content:
-        user_parts.append(f"## CONTENU SOURCE\n{content}")
+        user_parts.append(f"## SOURCE CONTENT\n{content}")
     ressources_block = _render_ressources(ressources)
     if ressources_block:
         user_parts.append(ressources_block)
     characters_block = _render_characters(characters)
     if characters_block:
         user_parts.append(characters_block)
-    user_content = "\n\n".join(user_parts) or content or prompt or "Crée la vidéo demandée."
+    user_content = "\n\n".join(user_parts) or content or prompt or "Create the requested video."
 
     messages = [{"role": "system", "content": system},
                 {"role": "user", "content": user_content}]

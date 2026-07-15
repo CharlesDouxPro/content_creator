@@ -92,8 +92,10 @@ def catalog_models() -> ModelsInfo:
     suggestions = {
         "master_mind": ["anthropic/claude-opus-4-8", "anthropic/claude-sonnet-4-6", "openai/gpt-oss-120b"],
         "slm": ["anthropic/claude-opus-4-8", "anthropic/claude-haiku-4-5", "openai/gpt-oss-120b"],
-        "lip_sync": ["PrunaAI/p-video-avatar"],
-        "video_generator": ["Wan-AI/Wan2.7-R2V"],
+        # Pour LTX local : choisir le provider "ltx_local" (le model_name est cosmétique,
+        # c'est le serveur qui charge son checkpoint ; le provider_id aiguille le backend).
+        "lip_sync": ["PrunaAI/p-video-avatar", "ltx-2.3"],
+        "video_generator": ["Wan-AI/Wan2.7-R2V", "ltx-2.3"],
         # ElevenLabs voice_id par défaut (Brian / Adam / Sarah). Voir GET /catalog/elevenlabs-voices.
         "voice_generator": ["nPczCjzI2devNBz1zQrb", "pNInz6obpgDQGcFmaJgB", "EXAVITQu4vr4xnSDxMaL"],
     }

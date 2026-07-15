@@ -16,60 +16,66 @@ from content_creator.config.config import VIDEO_BACKEND_CONFIG
 
 
 LTX_PROMPT_GUIDE = """\
-# COMPÉTENCE — Prompting du moteur vidéo (LTX-2)
+# SKILL — Video engine prompting (LTX-2)
 
-CONTEXTE : on produit du contenu COURT et VERTICAL (9:16) pour les RÉSEAUX SOCIAUX
-(TikTok, Instagram Reels, Facebook, Shorts) : accrocheur, dynamique, lisible sur mobile.
+CONTEXT: we produce SHORT and VERTICAL content (9:16) for SOCIAL MEDIA
+(TikTok, Instagram Reels, Facebook, Shorts): catchy, dynamic, readable on mobile.
 
-MOOD : le mood/ton de la vidéo doit TRANSPARAÎTRE dans CHAQUE prompt vidéo — via la
-lumière, la palette, le rythme, l'énergie de la caméra et l'attitude du sujet. Le mood prime.
+MOOD: the video's mood/tone must SHOW THROUGH in EVERY video prompt — via the
+light, the palette, the pacing, the camera energy and the subject's attitude. The mood prevails.
 
-Quand tu rédiges un prompt vidéo (ex. `shot_description`), applique la méthode LTX :
+LANGUAGE (mandatory): ALWAYS write the video prompts (e.g. `shot_description`, and any
+movement/camera description you send to the engine) in ENGLISH — LTX responds best to English.
+This is independent of the narration language: the SPOKEN text (`text` in add_talking_clip,
+`narration_text` in add_broll_clip/add_media_clip) stays in the video's language (e.g. French)
+and must NOT be translated. Only the visual prompt is in English.
 
-STRUCTURE — un seul paragraphe fluide, au PRÉSENT, CHRONOLOGIQUE (début → fin) :
-1. Plan : terme de cinéma + échelle (close-up, medium, wide, low angle, over-the-shoulder, tracking…).
-2. Scène : lumière, palette de couleurs, textures, atmosphère (golden hour, néons, brume, grain…).
-3. Action : une séquence naturelle qui s'enchaîne du début à la fin.
-4. Sujet : âge, cheveux, vêtements, détails distinctifs ; émotions par GESTES / POSTURE / VISAGE
-   (jamais de label abstrait type "triste" ou "tendu").
-5. Caméra : quand et comment elle bouge (slow dolly in, handheld tracking, pan left, static…)
-   + à quoi ressemble le plan APRÈS le mouvement.
-6. Audio (si pertinent) : ambiance, musique ; dialogues entre guillemets avec langue/accent.
+When you write a video prompt (e.g. `shot_description`), apply the LTX method:
 
-RÈGLES :
-- UN sujet, UNE action principale, UN comportement de caméra. UN SEUL plan continu (pas de multi-scènes).
-- Chronologique, verbes au PRÉSENT, 4–8 phrases, < 200 mots.
-- Adapte le niveau de détail à l'échelle (gros plan = plus de détails que plan large).
-- Décris la RELATION caméra ↔ sujet pour les mouvements.
-- Rédige le prompt vidéo en ANGLAIS (LTX y répond le mieux), même si la narration est en français.
+STRUCTURE — a single flowing paragraph, in the PRESENT tense, CHRONOLOGICAL (start → end):
+1. Shot: cinema term + scale (close-up, medium, wide, low angle, over-the-shoulder, tracking…).
+2. Scene: light, color palette, textures, atmosphere (golden hour, neon, mist, grain…).
+3. Action: a natural sequence that flows from start to end.
+4. Subject: age, hair, clothing, distinctive details; emotions through GESTURES / POSTURE / FACE
+   (never an abstract label like "sad" or "tense").
+5. Camera: when and how it moves (slow dolly in, handheld tracking, pan left, static…)
+   + what the shot looks like AFTER the movement.
+6. Audio (if relevant): ambience, music; dialogue in quotes with language/accent.
 
-À ÉVITER (sinon artefacts) :
-- Labels émotionnels abstraits → montre l'émotion par la posture, les gestes, le visage.
-- Texte ou logos lisibles (non fiables).
-- Physique chaotique (sauts, jonglage) ; la danse passe bien.
-- Surcharge (trop de sujets / actions / objets) → ça dilue le rendu.
-- Éclairages contradictoires (ex. coucher de soleil chaud + néon froid) sauf intention claire.
+RULES:
+- ONE subject, ONE main action, ONE camera behavior. ONE SINGLE continuous shot (no multi-scenes).
+- Chronological, verbs in the PRESENT tense, 4–8 sentences, < 200 words.
+- Match the level of detail to the scale (close-up = more detail than a wide shot).
+- Describe the camera ↔ subject RELATIONSHIP for movements.
+- Write the video prompt in ENGLISH (LTX responds best to it), even if the narration is in French.
 
-VOCABULAIRE UTILE (pioche dedans pour rester concret) :
-- Caméra : follows, tracks, pans across, circles around, tilts up, push in / pull back, overhead,
+TO AVOID (otherwise artifacts):
+- Abstract emotional labels → show the emotion through posture, gestures, face.
+- Readable text or logos (unreliable).
+- Chaotic physics (jumps, juggling); dancing works well.
+- Overload (too many subjects / actions / objects) → it dilutes the result.
+- Contradictory lighting (e.g. warm sunset + cold neon) unless clearly intended.
+
+USEFUL VOCABULARY (draw from it to stay concrete):
+- Camera: follows, tracks, pans across, circles around, tilts up, push in / pull back, overhead,
   handheld, over-the-shoulder, wide establishing shot, static frame, slow dolly in.
-- Échelle / rythme : intimate, epic, claustrophobic ; slow motion, time-lapse, lingering shot,
+- Scale / pacing: intimate, epic, claustrophobic; slow motion, time-lapse, lingering shot,
   continuous shot, seamless transition, sudden stop.
-- Lumière : natural sunlight, golden hour, neon glow, flickering candles, dramatic shadows, rim / backlight.
-- Atmosphère / texture : fog, rain, dust, smoke, particles ; rough stone, smooth metal, worn fabric, glossy.
-- Palette : vibrant, muted, monochromatic, high contrast.
-- Style (nomme-le TÔT) : documentary, film noir, thriller, modern romance, fashion editorial,
+- Light: natural sunlight, golden hour, neon glow, flickering candles, dramatic shadows, rim / backlight.
+- Atmosphere / texture: fog, rain, dust, smoke, particles; rough stone, smooth metal, worn fabric, glossy.
+- Palette: vibrant, muted, monochromatic, high contrast.
+- Style (name it EARLY): documentary, film noir, thriller, modern romance, fashion editorial,
   painterly, cyberpunk, 2D/3D animation, claymation.
-- VFX : motion blur, depth of field, lens flares, film grain, particle systems.
+- VFX: motion blur, depth of field, lens flares, film grain, particle systems.
 
-EXEMPLE (prompt b-roll au format cible, en anglais) :
+EXAMPLE (b-roll prompt in the target format, in English):
 "Cinematic medium shot, golden-hour light raking across an empty football stadium. The camera slowly
 pushes in past the touchline as the man from Image 1, in a dark suit, walks toward the pitch, hands in
 pockets, gaze fixed ahead. Warm rim light catches his shoulders; dust motes drift in the air. The crowd
 stands blurred and quiet in the background. Calm, contemplative atmosphere, shallow depth of field."
 
-DIALOGUE (si le plan parle) : mets le texte entre guillemets, précise langue/accent, et découpe en
-courtes répliques avec une indication de jeu (geste, pause, regard) entre chaque.
+DIALOGUE (if the shot speaks): put the text in quotes, specify language/accent, and break it into
+short lines with an acting cue (gesture, pause, glance) between each.
 """
 
 
@@ -85,43 +91,43 @@ LIPDUB_TOOL_NAMES = frozenset({"add_lipdub_clip"})
 LIPSYNC_TOOL_NAMES = frozenset({"add_talking_clip"})
 
 LIPSYNC_POLICY = """\
-# LIP-SYNC — un personnage qui PARLE À L'ÉCRAN a TOUJOURS les lèvres synchronisées
+# LIP-SYNC — a character who SPEAKS ON SCREEN ALWAYS has synced lips
 
-RÈGLE (prioritaire, quel que soit le type de vidéo) : dès qu'un personnage possédant un
-avatar (portrait) doit PARLER À L'IMAGE, planifie ce segment avec `add_talking_clip`
-(lip-sync). Ne le montre JAMAIS en train de parler via un plan b-roll ou média sans
-lip-sync : des lèvres désynchronisées sont un artefact rédhibitoire.
+RULE (top priority, whatever the video type): as soon as a character that has an
+avatar (portrait) must SPEAK ON SCREEN, plan that segment with `add_talking_clip`
+(lip-sync). NEVER show them speaking via a b-roll or media shot without
+lip-sync: out-of-sync lips are a dealbreaker artifact.
 
-La VOIX OFF (b-roll / média sans lip-sync) reste réservée aux passages où le personnage
-n'est PAS visible en train de parler : narration hors-champ, plans d'ambiance,
-illustration. Si le sujet parle et qu'on le voit, c'est `add_talking_clip`."""
+The VOICE-OVER (b-roll / media without lip-sync) stays reserved for passages where the character
+is NOT visibly speaking: off-screen narration, ambience shots,
+illustration. If the subject speaks and is on screen, it's `add_talking_clip`."""
 
 
 LIPDUB_GUIDE = """\
-# COMPÉTENCE — LipDub (remplacement de voix, vidéo→vidéo, IC-LoRA)
+# SKILL — LipDub (voice replacement, video→video, IC-LoRA)
 
-LipDub remplace le dialogue parlé dans une vidéo SOURCE existante (doublage vers une autre langue,
-OU reformulation dans la langue d'origine). Ce n'est PAS du text-to-video : tu fournis une vidéo
-source + un prompt décrivant ce que le locuteur doit dire à la place.
+LipDub replaces the spoken dialogue in an existing SOURCE video (dubbing into another language,
+OR rephrasing in the original language). This is NOT text-to-video: you provide a source video
++ a prompt describing what the speaker should say instead.
 
-Langues validées : anglais, français, espagnol, allemand, russe.
+Validated languages: English, French, Spanish, German, Russian.
 
-GABARIT DE PROMPT :
-  [Speaker] is speaking [Langue/Accent], saying: "[Dialogue]"
+PROMPT TEMPLATE:
+  [Speaker] is speaking [Language/Accent], saying: "[Dialogue]"
 
-EXEMPLE :
+EXAMPLE:
   A woman speaking in French saying: "Aujourd'hui est une superbe journée pour tester LTX."
-(Tu peux ajouter des précisions d'émotion ou de débit.)
+(You can add emotion or delivery details.)
 
-EXIGENCES :
-- Fournis le dialogue COMPLET — le modèle suit le texte du prompt, il ne TRADUIT pas pour toi.
-- Écris en SCRIPT NATIF de la langue cible (ex. cyrillique pour le russe, caractères chinois pour le mandarin).
-- UN SEUL locuteur (l'IC-LoRA bêta ne distingue pas plusieurs locuteurs).
+REQUIREMENTS:
+- Provide the FULL dialogue — the model follows the prompt text, it does NOT translate for you.
+- Write in the NATIVE SCRIPT of the target language (e.g. Cyrillic for Russian, Chinese characters for Mandarin).
+- A SINGLE speaker (the beta IC-LoRA does not distinguish multiple speakers).
 
-BONNES PRATIQUES :
-- Cale la LONGUEUR / le nombre de SYLLABES sur le dialogue d'origine (un peu plus long > trop court) :
-  - prompt trop long  → le modèle peut sauter des mots ;
-  - prompt trop court → le rendu paraît lent et peu naturel.
+BEST PRACTICES:
+- Match the LENGTH / SYLLABLE count to the original dialogue (slightly longer > too short):
+  - prompt too long  → the model may skip words;
+  - prompt too short → the result looks slow and unnatural.
 """
 
 
@@ -129,45 +135,45 @@ BONNES PRATIQUES :
 # LTX local (USE_LTX_BROLL / USE_LTX_LIPSYNC). En i2v, l'IMAGE fournit déjà la scène
 # (décor, sujet, palette) : décrire à nouveau la scène entre en conflit avec l'image.
 _LTX_I2V_GUIDE = """\
-# MODE ACTIF — serveur LTX local : DEUX RÉGIMES selon le plan
+# ACTIVE MODE — local LTX server: TWO REGIMES depending on the shot
 
-Règle d'or : quand le moteur part d'une IMAGE de référence (image-to-video), l'image FOURNIT
-DÉJÀ le décor + le sujet + l'apparence. Redécrire tout ça dans le prompt ENTRE EN CONFLIT avec
-l'image → visages déformés, scènes surréalistes. C'est LA cause n°1 d'artefacts. Distingue donc :
+Golden rule: when the engine starts from a reference IMAGE (image-to-video), the image ALREADY
+PROVIDES the background + the subject + the appearance. Re-describing all of that in the prompt CONFLICTS with
+the image → distorted faces, surreal scenes. It is THE #1 cause of artifacts. So distinguish:
 
-1) PLAN AVEC RÉFÉRENCE D'IMAGE (tête parlante `add_talking_clip` ; b-roll `add_broll_clip`
-   AVEC `character` ; b-roll avec `reference_image`) → IMAGE-TO-VIDEO.
-   Dans le prompt, décris UNIQUEMENT :
-   - le MOUVEMENT du sujet (gestes, démarche, regard qui se tourne…),
-   - la CAMÉRA (slow push in, handheld tracking, pan, static…) et l'état du plan APRÈS,
-   - l'AUDIO/l'ambiance si pertinent.
-   NE redécris PAS le décor, les vêtements, le visage : ils viennent de l'image.
-   Exemple : "The camera slowly pushes in as the subject turns toward the lens and gives a
+1) SHOT WITH AN IMAGE REFERENCE (talking head `add_talking_clip`; b-roll `add_broll_clip`
+   WITH `character`; b-roll with `reference_image`) → IMAGE-TO-VIDEO.
+   In the prompt, describe ONLY:
+   - the subject's MOVEMENT (gestures, gait, gaze turning…),
+   - the CAMERA (slow push in, handheld tracking, pan, static…) and the state of the shot AFTER,
+   - the AUDIO/ambience if relevant.
+   Do NOT re-describe the background, the clothing, the face: they come from the image.
+   Example: "The camera slowly pushes in as the subject turns toward the lens and gives a
    calm, confident nod; subtle natural motion, shallow depth of field, soft room tone."
 
-2) PLAN D'AMBIANCE / CUTAWAY SANS ton personnage (stade, foule, objet, paysage…) → appelle
-   `add_broll_clip` SANS `character` : c'est du TEXT-TO-VIDEO, le moteur génère tout depuis ton
-   texte. LÀ tu décris la SCÈNE COMPLÈTE (cadrage + lumière + palette + action + caméra), en
-   détail (prompt long = meilleur rendu).
-   Exemple : "Cinematic wide shot inside a packed stadium at night, vibrant floodlights, fans in
+2) AMBIENCE / CUTAWAY SHOT WITHOUT your character (stadium, crowd, object, landscape…) → call
+   `add_broll_clip` WITHOUT `character`: this is TEXT-TO-VIDEO, the engine generates everything from your
+   text. THERE you describe the FULL SCENE (framing + light + palette + action + camera), in
+   detail (long prompt = better result).
+   Example: "Cinematic wide shot inside a packed stadium at night, vibrant floodlights, fans in
    colorful jerseys waving flags and chanting, confetti drifting, handheld camera sweeping across
    the crowd, shallow depth of field, electric festive atmosphere, roaring crowd ambience."
 
-NE JAMAIS mettre ton personnage (`character`) sur un plan d'ambiance où il n'apparaît pas : ancrer
-un portrait studio à une scène de stade produit un rendu déformé. Reste bref en i2v (2–4 phrases),
-détaillé en t2v.
+NEVER put your character (`character`) on an ambience shot where they do not appear: anchoring
+a studio portrait to a stadium scene produces a distorted result. Stay brief in i2v (2–4 sentences),
+detailed in t2v.
 
-PARAMÈTRES PAR PLAN (optionnels) — `add_talking_clip` / `add_broll_clip` acceptent :
-- `duration_s` : durée du plan (défaut = longueur de la narration). Étire un plan
-  d'ambiance, raccourcis une punchline. Reste dans 2–10 s.
-- `image_strength` (i2v, 0–1) : adhérence à l'image de réf. 1.0 = très fidèle (peu de
-  mouvement) ; 0.7–0.85 = plus de liberté de mouvement/caméra. Pour du b-roll vivant,
-  préfère ~0.8 ; pour une tête parlante stable, garde ~1.0.
-- `hdr: true` : passe de raffinement (≈2× plus lent) — réserve aux plans CLÉS.
-- `num_inference_steps` : qualité/temps (défaut 30). Monte (40–50) seulement si demandé.
-- `width`/`height`/`frame_rate` : NE LES CHANGE QUE si explicitement demandé — des
-  tailles hétérogènes compliquent l'assemblage final (concat).
-N'envoie un paramètre QUE si tu veux dévier du défaut ; sinon laisse-le vide."""
+PER-SHOT PARAMETERS (optional) — `add_talking_clip` / `add_broll_clip` accept:
+- `duration_s`: shot duration (default = narration length). Stretch an ambience
+  shot, shorten a punchline. Stay within 2–10 s.
+- `image_strength` (i2v, 0–1): adherence to the reference image. 1.0 = very faithful (little
+  movement); 0.7–0.85 = more movement/camera freedom. For lively b-roll,
+  prefer ~0.8; for a stable talking head, keep ~1.0.
+- `hdr: true`: refinement pass (≈2× slower) — reserve for KEY shots.
+- `num_inference_steps`: quality/time (default 30). Raise it (40–50) only if requested.
+- `width`/`height`/`frame_rate`: ONLY CHANGE THEM if explicitly requested — heterogeneous
+  sizes complicate the final assembly (concat).
+Only send a parameter IF you want to deviate from the default; otherwise leave it empty."""
 
 
 def _format_specs() -> str:
@@ -176,13 +182,13 @@ def _format_specs() -> str:
     c = VIDEO_BACKEND_CONFIG
     w, h, fr = c["ltx_width"], c["ltx_height"], c["ltx_frame_rate"]
     return f"""\
-# FORMAT RÉELLEMENT RENDU (respecte-le dans tes prompts)
-- Cadre VERTICAL 9:16 — {w}×{h}px @ {fr:g} fps. Compose pour le mobile : sujet centré/haut,
-  marge en bas pour les sous-titres, action lisible en petit.
-- DURÉE d'un plan : par défaut calée sur la longueur de sa narration. Tu peux la forcer
-  via `duration_s` (ex. un plan d'ambiance plus long) — elle sera arrondie au format
-  valide du moteur (8k+1 frames). Garde des plans COURTS (2–10 s) pour le format réseaux.
-- Le moteur arrondit la résolution à un multiple de 64 ; n'essaie pas de la pré-ajuster.
+# FORMAT ACTUALLY RENDERED (respect it in your prompts)
+- VERTICAL 9:16 frame — {w}×{h}px @ {fr:g} fps. Compose for mobile: subject centered/high,
+  margin at the bottom for subtitles, action readable at small size.
+- SHOT DURATION: by default matched to its narration length. You can force it
+  via `duration_s` (e.g. a longer ambience shot) — it will be rounded to the engine's
+  valid format (8k+1 frames). Keep shots SHORT (2–10 s) for the social format.
+- The engine rounds the resolution to a multiple of 64; do not try to pre-adjust it.
 """
 
 

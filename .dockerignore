@@ -1,0 +1,27 @@
+# Contexte de build minimal : accélère le build et évite de baker des secrets.
+.git
+**/__pycache__
+**/*.py[cod]
+.venv
+venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+
+# Front : node_modules et dist rebuilds dans l'image
+**/node_modules
+control_panel/frontend/dist
+
+# Secrets (montés au runtime, JAMAIS dans l'image)
+.env
+.env.*
+api-key.json
+*.key
+
+# Sorties / volumineux (montés en volume au runtime)
+runs
+output
+LTX-video-server
+
+# OS
+.DS_Store

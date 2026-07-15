@@ -1,0 +1,45 @@
+# =============================================================================
+# docker-compose.yml — 2 services : API FastAPI (backend) + Caddy (front+proxy).
+#
+#   docker compose up -d --build      # démarre / reconstruit
+#   docker compose logs -f            # suit les logs
+#   docker compose down               # arrête
+#
+# Les données mutables (channels, runs, avatars) sont montées en volume depuis
+# l'hôte : elles SURVIVENT aux rebuilds/redémarrages.
+# =============================================================================
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    # Secrets + config lus par content_creator/config/config.py (racine = /app).
+    env_file: .env
+    volumes:
+      - ./.env:/app/.env:ro                                                   # variables (clés API, flags)
+      - ./api-key.json:/app/api-key.json:ro                                   # service account GCS
+      - ./content_creator/config/channels.json:/app/content_creator/config/channels.json  # état persistant
+      - ./runs:/app/runs                                                      # sorties des runs
+      - ./avatars:/app/avatars                                                # avatars uploadés
+    expose:
+      - "8080"        # visible seulement des autres conteneurs, pas de l'extérieur
+
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"       # HTTP (redirigé en HTTPS + challenge Let's Encrypt)
+      - "443:443"     # HTTPS
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro   # édite domaine/mot de passe sans rebuild
+      - caddy_data:/data                      # certificats TLS (à conserver)
+      - caddy_config:/config
+    depends_on:
+      - backend
+
+volumes:
+  caddy_data:
+  caddy_config:

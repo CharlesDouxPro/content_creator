@@ -55,7 +55,7 @@ def openai_tool_schemas(names=None) -> list:
 def dispatch(session, name: str, args: dict) -> dict:
     """Exécute un tool par nom, en injectant la session. Capture les erreurs."""
     if name not in TOOLS:
-        return {"status": "error", "error": f"tool inconnu: {name}"}
+        return {"status": "error", "error": f"unknown tool: {name}"}
     try:
         return TOOLS[name]["fn"](session, **(args or {}))
     except Exception as e:
@@ -179,18 +179,18 @@ def render_plan(session: "VideoSession", workers: int = None) -> list:
 # N'ONT D'EFFET QUE si le backend LTX local est actif (USE_LTX_BROLL/USE_LTX_LIPSYNC) ;
 # sinon ignorées. Tous OPTIONNELS : laisser vide => défauts du .env / pipeline.
 _LTX_PARAM_PROPS = {
-    "duration_s": {"type": "number", "description": "Optionnel (LTX): durée cible du plan en secondes "
-                   "(arrondie au format 8k+1). Défaut: longueur de la narration. Garde 2–10 s."},
-    "width": {"type": "integer", "description": "Optionnel (LTX): largeur px (multiple de 64, arrondi serveur). "
-              "Défaut: format 9:16 du .env. Ne change que pour un besoin précis (cohérence du concat)."},
-    "height": {"type": "integer", "description": "Optionnel (LTX): hauteur px (multiple de 64). Défaut: 9:16 du .env."},
-    "frame_rate": {"type": "number", "description": "Optionnel (LTX): images/s. Défaut: .env (24)."},
-    "num_inference_steps": {"type": "integer", "description": "Optionnel (LTX): nb d'étapes de denoising "
-                            "(plus haut = un peu mieux, plus lent). Défaut serveur: 30."},
-    "image_strength": {"type": "number", "description": "Optionnel (LTX i2v): adhérence à l'image de réf "
-                       "0–1 (1=colle fort, 0.7–0.85=plus de liberté de mouvement)."},
-    "hdr": {"type": "boolean", "description": "Optionnel (LTX): passe HDR de raffinement (≈2× plus lent). "
-            "Réserve aux plans CLÉS."},
+    "duration_s": {"type": "number", "description": "Optional (LTX): target shot duration in seconds "
+                   "(rounded to the 8k+1 format). Default: narration length. Keep 2–10 s."},
+    "width": {"type": "integer", "description": "Optional (LTX): width in px (multiple of 64, server-rounded). "
+              "Default: 9:16 format from .env. Only change for a specific need (concat consistency)."},
+    "height": {"type": "integer", "description": "Optional (LTX): height in px (multiple of 64). Default: 9:16 from .env."},
+    "frame_rate": {"type": "number", "description": "Optional (LTX): frames/s. Default: .env (24)."},
+    "num_inference_steps": {"type": "integer", "description": "Optional (LTX): number of denoising steps "
+                            "(higher = slightly better, slower). Server default: 30."},
+    "image_strength": {"type": "number", "description": "Optional (LTX i2v): adherence to the reference image "
+                       "0–1 (1=stick tightly, 0.7–0.85=more movement freedom)."},
+    "hdr": {"type": "boolean", "description": "Optional (LTX): HDR refinement pass (≈2× slower). "
+            "Reserve for KEY shots."},
 }
 
 # Clés de _LTX_PARAM_PROPS = les noms d'args LTX à extraire des kwargs d'un tool.
@@ -204,9 +204,9 @@ def _collect_ltx_params(kwargs: dict) -> dict:
 
 # Propriété `character` partagée par les tools de planification.
 _CHARACTER_PROP = {
-    "character": {"type": "string", "description": "Optionnel: nom d'un personnage défini pour ce "
-                  "channel. Sa VOIX, son APPARENCE (portrait) et sa DESCRIPTION sont alors appliquées. "
-                  "Sans valeur: voix par défaut du channel."},
+    "character": {"type": "string", "description": "Optional: name of a character defined for this "
+                  "channel. Its VOICE, its APPEARANCE (portrait) and its DESCRIPTION are then applied. "
+                  "No value: channel default voice."},
 }
 
 
@@ -228,12 +228,12 @@ def _resolve_character(session: "VideoSession", character: str = None) -> tuple:
 
 @tool({
     "name": "add_talking_clip",
-    "description": "PLANIFIE un plan FACE CAMÉRA: l'avatar dit `text`, lèvres synchronisées (lip-sync). "
-                   "Instantané (le rendu se fait à assemble_video). À utiliser pour l'accroche, "
-                   "les phrases clés et la conclusion.",
+    "description": "PLANS a shot FACING THE CAMERA: the avatar says `text`, lips synced (lip-sync). "
+                   "Instant (rendering happens at assemble_video). Use it for the hook, "
+                   "the key sentences and the conclusion.",
     "parameters": {"type": "object", "properties": {
-        "text": {"type": "string", "description": "Texte exact que l'avatar prononce (un segment/phrase)."},
-        "expression": {"type": "string", "description": "Optionnel: ton/expression (ex. 'sourire chaleureux')."},
+        "text": {"type": "string", "description": "Exact text the avatar speaks (one segment/sentence)."},
+        "expression": {"type": "string", "description": "Optional: tone/expression (e.g. 'warm smile')."},
         **_CHARACTER_PROP,
         **_LTX_PARAM_PROPS,
     }, "required": ["text"]},
@@ -243,8 +243,8 @@ def add_talking_clip(session: VideoSession, text: str, expression: str = None,
     voice, char = _resolve_character(session, character)
     portrait, description = char.get("portrait_url"), char.get("description")
     if not portrait:
-        return {"status": "error", "error": "plan face caméra (lip-sync) impossible : passe un "
-                "`character` qui possède une image. Sinon utilise add_broll_clip ou add_media_clip."}
+        return {"status": "error", "error": "facing-camera shot (lip-sync) impossible: pass a "
+                "`character` that has an image. Otherwise use add_broll_clip or add_media_clip."}
     idx = session.clip_no
     session.clip_no += 1
     video_prompt = " ".join(p for p in [expression, description, PRUNA_MOVEMENT] if p)
@@ -258,18 +258,18 @@ def add_talking_clip(session: VideoSession, text: str, expression: str = None,
 
 @tool({
     "name": "add_broll_clip",
-    "description": "PLANIFIE un plan B-ROLL cinématographique (avatar de profil/marche/ambiance) avec "
-                   "la narration en voix off. Instantané (rendu à assemble_video). Pour les phrases "
-                   "descriptives/d'ambiance.",
+    "description": "PLANS a cinematic B-ROLL shot (avatar in profile/walking/ambience) with "
+                   "the narration as voice-over. Instant (rendering at assemble_video). For "
+                   "descriptive/ambience sentences.",
     "parameters": {"type": "object", "properties": {
-        "narration_text": {"type": "string", "description": "Texte de la voix off pour ce plan."},
-        "shot_description": {"type": "string", "description": "Prompt vidéo pour le moteur (LTX), "
-                             "rédigé selon la COMPÉTENCE de prompting : un seul plan continu, chronologique, "
-                             "au présent, cadrage + lumière + action + caméra, en anglais, qui reflète le mood."},
-        "reference_image": {"type": "string", "description": "Optionnel: URL d'une image de référence "
-                            "à animer en INPUT i2v de CE plan (à la place du décor courant). Typiquement "
-                            "l'`url` retournée par `search_web_image` pour une entité réelle sans image fournie. "
-                            "Le moteur partira de cette image."},
+        "narration_text": {"type": "string", "description": "Voice-over text for this shot."},
+        "shot_description": {"type": "string", "description": "Video prompt for the engine (LTX), "
+                             "written according to the prompting SKILL: a single continuous shot, chronological, "
+                             "in the present tense, framing + light + action + camera, in English, reflecting the mood."},
+        "reference_image": {"type": "string", "description": "Optional: URL of a reference image "
+                            "to animate as the i2v INPUT of THIS shot (instead of the current background). Typically "
+                            "the `url` returned by `search_web_image` for a real entity with no provided image. "
+                            "The engine will start from this image."},
         **_CHARACTER_PROP,
         **_LTX_PARAM_PROPS,
     }, "required": ["narration_text", "shot_description"]},
@@ -296,19 +296,19 @@ def add_broll_clip(session: VideoSession, narration_text: str, shot_description:
 
 @tool({
     "name": "add_media_clip",
-    "description": "PLANIFIE un plan à partir d'un CLIP VIDÉO ou d'une IMAGE FOURNI (montage). `source` = "
-                   "un chemin local OU une URL issus des ressources OU une image récupérée par "
-                   "`search_web_image`. Le média est normalisé au MÊME format que les autres plans de la "
-                   "vidéo (cohérence garantie) : une vidéo est recadrée, une IMAGE devient un plan fixe "
-                   "(sur la voix off si fournie, sinon `image_duration_s`). Instantané (rendu à "
-                   "assemble_video). Outil clé pour le montage et pour ILLUSTRER une entité avec une image web.",
+    "description": "PLANS a shot from a PROVIDED VIDEO CLIP or IMAGE (editing). `source` = "
+                   "a local path OR a URL from the resources OR an image fetched by "
+                   "`search_web_image`. The media is normalized to the SAME format as the other shots of the "
+                   "video (consistency guaranteed): a video is reframed, an IMAGE becomes a still shot "
+                   "(over the voice-over if provided, otherwise `image_duration_s`). Instant (rendering at "
+                   "assemble_video). Key tool for editing and for ILLUSTRATING an entity with a web image.",
     "parameters": {"type": "object", "properties": {
-        "source": {"type": "string", "description": "Chemin local OU URL du clip vidéo / de l'image à "
-                   "intégrer (ressources disponibles ou résultat de search_web_image)."},
-        "narration_text": {"type": "string", "description": "Optionnel: voix off TTS qui REMPLACE "
-                           "l'audio du clip (ou commente l'image). Laisser vide pour garder l'audio d'origine."},
-        "image_duration_s": {"type": "number", "description": "Optionnel (IMAGE muette uniquement): durée "
-                             "du plan fixe en secondes. Défaut 4. Ignoré pour une vidéo ou si narration_text."},
+        "source": {"type": "string", "description": "Local path OR URL of the video clip / image to "
+                   "integrate (available resources or result of search_web_image)."},
+        "narration_text": {"type": "string", "description": "Optional: TTS voice-over that REPLACES "
+                           "the clip's audio (or comments on the image). Leave empty to keep the original audio."},
+        "image_duration_s": {"type": "number", "description": "Optional (silent IMAGE only): duration "
+                             "of the still shot in seconds. Default 4. Ignored for a video or if narration_text."},
         **_CHARACTER_PROP,
     }, "required": ["source"]},
 })
@@ -340,16 +340,16 @@ def _article_to_text(article) -> str:
 
 @tool({
     "name": "scrape_article",
-    "description": "Scrape les pages listées dans les RESSOURCES (urls), sélectionne le PREMIER "
-                   "article encore NON traité pour ce channel (dédup), le marque comme traité et te "
-                   "retourne son texte. À appeler EN PREMIER pour une vidéo basée sur l'actualité ; "
-                   "ensuite tu peux adapter ce texte avec `write_script`.",
+    "description": "Scrapes the pages listed in the RESOURCES (urls), selects the FIRST "
+                   "article still UNTREATED for this channel (dedup), marks it as treated and "
+                   "returns its text to you. Call it FIRST for a news-based video; "
+                   "then you can adapt this text with `write_script`.",
     "parameters": {"type": "object", "properties": {}},
 })
 def scrape_article(session: VideoSession) -> dict:
     urls = (session.ressources or {}).get("urls") or []
     if not urls:
-        return {"status": "error", "error": "aucune url dans les ressources (context.ressources.urls)"}
+        return {"status": "error", "error": "no url in the resources (context.ressources.urls)"}
     scraper = NewsScraper()
     articles = []
     for url in urls:
@@ -359,14 +359,14 @@ def scrape_article(session: VideoSession) -> dict:
             if blocks:
                 articles.append(FullArticle(link=link, content=blocks))
     if not articles:
-        return {"status": "error", "error": "aucun article scrapé"}
+        return {"status": "error", "error": "no article scraped"}
     for article in articles:
         if not is_processed(session.name, article.link.href):
             session.article = article
             mark_processed(session.name, article.link.href)
             return {"status": "ok", "title": article.link.title,
                     "text": _article_to_text(article)}
-    return {"status": "error", "error": "tous les articles déjà traités"}
+    return {"status": "error", "error": "all articles already treated"}
 
 
 # ========================
@@ -374,20 +374,20 @@ def scrape_article(session: VideoSession) -> dict:
 # ========================
 @tool({
     "name": "search_web_image",
-    "description": "Cherche et télécharge une IMAGE sur le web (Google Images) pour une entité/un sujet "
-                   "RÉEL et NON-PUBLIC/non-fictif que le moteur ne saura pas dessiner de façon fiable et pour "
-                   "lequel AUCUNE image n'est fournie dans les ressources : ex. une personne peu connue, un "
-                   "produit/logo précis, un lieu spécifique, un événement local. Inutile pour une célébrité, "
-                   "une marque ultra-connue ou un sujet fictif/générique (le moteur les gère seul). "
-                   "EN CAS DE SUCCÈS, le tool retourne `url` (+ `local_path`) : réutilise `url` comme "
-                   "`reference_image` d'un `add_broll_clip` (input i2v, le moteur anime l'image) OU comme "
-                   "`source` d'un `add_media_clip` (plan d'illustration fixe au montage). "
-                   "EN CAS D'ÉCHEC (status=error), AUCUNE image n'a pu être récupérée : CHANGE de stratégie — "
-                   "génère le plan sans image de référence en décrivant toute la scène dans `shot_description`, "
-                   "ou reformule la requête une fois, ou abandonne ce visuel.",
+    "description": "Searches and downloads an IMAGE from the web (Google Images) for a REAL and "
+                   "NON-PUBLIC/non-fictional entity/subject that the engine cannot draw reliably and for "
+                   "which NO image is provided in the resources: e.g. a little-known person, a "
+                   "specific product/logo, a specific place, a local event. Not needed for a celebrity, "
+                   "a very well-known brand or a fictional/generic subject (the engine handles those on its own). "
+                   "ON SUCCESS, the tool returns `url` (+ `local_path`): reuse `url` as the "
+                   "`reference_image` of an `add_broll_clip` (i2v input, the engine animates the image) OR as the "
+                   "`source` of an `add_media_clip` (still illustration shot in the edit). "
+                   "ON FAILURE (status=error), NO image could be fetched: CHANGE strategy — "
+                   "generate the shot without a reference image by describing the whole scene in `shot_description`, "
+                   "or rephrase the query once, or drop that visual.",
     "parameters": {"type": "object", "properties": {
-        "query": {"type": "string", "description": "Requête de recherche précise : nom exact de l'entité/du "
-                  "sujet, 2-5 mots (ex. 'Jean Dupont maire Annecy', 'casque Sony WH-1000XM5', 'gare de Metz')."},
+        "query": {"type": "string", "description": "Precise search query: exact name of the entity/"
+                  "subject, 2-5 words (e.g. 'Jean Dupont mayor Annecy', 'Sony WH-1000XM5 headset', 'Metz station')."},
     }, "required": ["query"]},
 })
 def search_web_image(session: VideoSession, query: str) -> dict:
@@ -395,21 +395,21 @@ def search_web_image(session: VideoSession, query: str) -> dict:
     local = fetch_web_image(query, session.output_dir, idx=idx)
     if not local:
         return {"status": "error",
-                "error": f"aucune image exploitable trouvée pour « {query} ». La récupération d'image a "
-                         "ÉCHOUÉ : change de stratégie — génère le plan sans image de référence (décris toute "
-                         "la scène dans shot_description), reformule la requête, ou laisse tomber ce visuel."}
+                "error": f"no usable image found for \"{query}\". The image fetch "
+                         "FAILED: change strategy — generate the shot without a reference image (describe the whole "
+                         "scene in shot_description), rephrase the query, or drop that visual."}
     session.fetched_images.append(local)
     try:
         url = upload_public(session.ctx.gcs, local, f"media/test/web_image_{idx}.jpg")
     except Exception as e:
         # L'image locale existe (utilisable en montage), mais pas d'URL publique pour l'i2v.
         return {"status": "ok", "query": query, "local_path": local, "url": None,
-                "note": f"image téléchargée localement mais upload public échoué ({e}). Utilisable via "
-                        "add_media_clip (`source`={local_path}); pas d'i2v sans URL. Supprimée en fin de vidéo."}
+                "note": f"image downloaded locally but public upload failed ({e}). Usable via "
+                        "add_media_clip (`source`={local_path}); no i2v without a URL. Deleted at the end of the video."}
     session.web_images[query] = {"local_path": local, "url": url}
     return {"status": "ok", "query": query, "local_path": local, "url": url,
-            "note": "image téléchargée. Passe `url` en `reference_image` d'add_broll_clip (input i2v) "
-                    "OU en `source` d'add_media_clip (plan d'illustration). Supprimée en fin de vidéo."}
+            "note": "image downloaded. Pass `url` as `reference_image` of add_broll_clip (i2v input) "
+                    "OR as `source` of add_media_clip (illustration shot). Deleted at the end of the video."}
 
 
 # ========================
@@ -417,21 +417,21 @@ def search_web_image(session: VideoSession, query: str) -> dict:
 # ========================
 @tool({
     "name": "write_script",
-    "description": "Écris le SCRIPT de narration à partir de l'article fourni. TU rédiges `style` "
-                   "(ton, angle, rythme, intention) EN FONCTION DU MOOD — c'est toi qui écris le prompt "
-                   "d'écriture. Appelle-le EN PREMIER ; le script t'est retourné pour le découper ensuite.",
+    "description": "Writes the narration SCRIPT from the provided article. YOU write `style` "
+                   "(tone, angle, pacing, intent) BASED ON THE MOOD — you are the one writing the writing "
+                   "prompt. Call it FIRST; the script is returned to you to split afterward.",
     "parameters": {"type": "object", "properties": {
-        "style": {"type": "string", "description": "Tes instructions de ton/style/angle pour écrire le "
-                  "script, dérivées du mood (ex. 'ton dramatique, phrases courtes et tendues, montée en tension')."},
+        "style": {"type": "string", "description": "Your tone/style/angle instructions for writing the "
+                  "script, derived from the mood (e.g. 'dramatic tone, short tense sentences, rising tension')."},
     }, "required": ["style"]},
 })
 def write_script(session: VideoSession, style: str = "") -> dict:
     if session.article is None:
         return {"status": "error",
-                "error": "aucun article : le message contient déjà le script, découpe-le directement"}
+                "error": "no article: the message already contains the script, split it directly"}
     script = session.ctx.summarizer.summarize_article(session.article, mood=style or None)
     if not script:
-        return {"status": "error", "error": "échec écriture du script"}
+        return {"status": "error", "error": "script writing failed"}
     session.script = script
     return {"status": "ok", "script": script}
 
@@ -441,22 +441,22 @@ def write_script(session: VideoSession, style: str = "") -> dict:
 # ========================
 @tool({
     "name": "set_scene_background",
-    "description": "Place un PERSONNAGE dans un DÉCOR cohérent (FLUX Kontext), en préservant son "
-                   "identité. Met à jour le portrait du personnage : ses prochains plans (face caméra / "
-                   "b-roll) utiliseront ce décor. À appeler AVANT de planifier les plans du personnage.",
+    "description": "Places a CHARACTER in a coherent BACKGROUND (FLUX Kontext), preserving their "
+                   "identity. Updates the character's portrait: their next shots (facing camera / "
+                   "b-roll) will use this background. Call it BEFORE planning the character's shots.",
     "parameters": {"type": "object", "properties": {
-        "character": {"type": "string", "description": "Nom du personnage (doit posséder une image)."},
-        "description": {"type": "string", "description": "Le DÉCOR/l'ambiance uniquement, inféré du "
-                        "contexte (ex. 'stade de football au coucher du soleil', 'studio TV épuré'). "
-                        "Ne décris PAS la personne."},
+        "character": {"type": "string", "description": "Character name (must have an image)."},
+        "description": {"type": "string", "description": "The BACKGROUND/ambience only, inferred from "
+                        "the context (e.g. 'football stadium at sunset', 'clean TV studio'). "
+                        "Do NOT describe the person."},
     }, "required": ["character", "description"]},
 })
 def set_scene_background(session: VideoSession, character: str, description: str) -> dict:
     _, char = _resolve_character(session, character)
     local = char.get("local_image")
     if not local:
-        return {"status": "error", "error": f"personnage '{character}' inconnu ou sans image : "
-                "le décor (FLUX Kontext) s'applique au portrait d'un personnage."}
+        return {"status": "error", "error": f"character '{character}' unknown or without an image: "
+                "the background (FLUX Kontext) applies to a character's portrait."}
     out = os.path.join(session.output_dir, f"scene_{character}.jpg")
     prompt = BACKGROUND_TEMPLATE.format(scene=description)   # identité préservée + décor inféré
     scene = prepare_scene_portrait(regen=True, src=local, prompt=prompt, out=out)
@@ -464,21 +464,21 @@ def set_scene_background(session: VideoSession, character: str, description: str
     # Met à jour le portrait du personnage -> ses prochains plans utiliseront ce décor.
     session.characters[character]["portrait_url"] = url
     return {"status": "ok", "character": character, "scene": description,
-            "note": "décor appliqué au personnage; ses prochains plans l'utiliseront"}
+            "note": "background applied to the character; their next shots will use it"}
 
 
 @tool({
     "name": "assemble_video",
-    "description": "REND tous les plans planifiés EN PARALLÈLE (dans l'ordre) puis les assemble en "
-                   "une vidéo finale. À appeler une fois TOUS les plans planifiés.",
+    "description": "RENDERS all planned shots IN PARALLEL (in order) then assembles them into "
+                   "a final video. Call it once ALL shots are planned.",
     "parameters": {"type": "object", "properties": {}},
 })
 def assemble_video(session: VideoSession) -> dict:
     if not session.plan:
-        return {"status": "error", "error": "aucun plan planifié (utilise add_talking_clip/add_broll_clip)"}
+        return {"status": "error", "error": "no shot planned (use add_talking_clip/add_broll_clip)"}
     results = render_plan(session)
     if not session.clips:
-        return {"status": "error", "error": "aucun plan rendu avec succès", "plans": results}
+        return {"status": "error", "error": "no shot rendered successfully", "plans": results}
     out = os.path.join(session.output_dir, "final_story.mp4")
     concat_clips(session.clips, out)
     session.final_video = out
@@ -487,20 +487,20 @@ def assemble_video(session: VideoSession) -> dict:
 
 @tool({
     "name": "add_subtitles",
-    "description": "Incruste des sous-titres animés sur la vidéo finale (Creatomate). À appeler APRÈS assemble_video.",
+    "description": "Burns animated subtitles onto the final video (Creatomate). Call it AFTER assemble_video.",
     "parameters": {"type": "object", "properties": {}},
 })
 def add_subtitles(session: VideoSession) -> dict:
     if not session.final_video:
-        return {"status": "error", "error": "appelle assemble_video d'abord"}
+        return {"status": "error", "error": "call assemble_video first"}
     url = upload_public(session.ctx.gcs, session.final_video, "media/test/final_for_subs.mp4")
     vg = VideoGenerator()
     resp = vg.add_subtitles(url)
     if not resp:
-        return {"status": "error", "error": "add_subtitles a échoué"}
+        return {"status": "error", "error": "add_subtitles failed"}
     final = vg.wait_for_render(resp.id, max_wait=120, poll_interval=3)
     if not final:
-        return {"status": "error", "error": "render sous-titres timeout"}
+        return {"status": "error", "error": "subtitle render timeout"}
     out = os.path.join(session.output_dir, "final_subtitled.mp4")
     download(str(final.url), out)
     session.final_video = out
@@ -509,16 +509,16 @@ def add_subtitles(session: VideoSession) -> dict:
 
 @tool({
     "name": "add_background_music",
-    "description": "Ajoute un lit musical à bas volume sous la narration de la vidéo finale. "
-                   "À appeler APRÈS assemble_video.",
+    "description": "Adds a low-volume music bed under the narration of the final video. "
+                   "Call it AFTER assemble_video.",
     "parameters": {"type": "object", "properties": {
-        "source": {"type": "string", "description": "Chemin local ou URL d'un fichier audio musical."},
-        "volume": {"type": "number", "description": "Volume de la musique 0-1 (défaut 0.15)."},
+        "source": {"type": "string", "description": "Local path or URL of a music audio file."},
+        "volume": {"type": "number", "description": "Music volume 0-1 (default 0.15)."},
     }, "required": ["source"]},
 })
 def add_background_music(session: VideoSession, source: str, volume: float = 0.15) -> dict:
     if not session.final_video:
-        return {"status": "error", "error": "appelle assemble_video d'abord"}
+        return {"status": "error", "error": "call assemble_video first"}
     out = os.path.join(session.output_dir, "final_music.mp4")
     mix_music(session.final_video, source, out, volume)
     session.final_video = out

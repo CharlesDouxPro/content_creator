@@ -1,0 +1,31 @@
+# =============================================================================
+# Dockerfile.backend — API FastAPI (panneau de contrôle) + pipeline vidéo.
+# Contient ffmpeg (assemblage audio/vidéo) et les deps Python via uv.
+# Les secrets (.env, api-key.json) NE SONT PAS copiés : ils sont montés au runtime.
+# =============================================================================
+FROM python:3.12-slim
+
+# ffmpeg = mux/concat des plans ; ca-certificates = HTTPS vers les APIs externes.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv : gestionnaire de paquets Python (même outil qu'en local).
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /app
+
+# 1) Métadonnées + code du package requis par le build hatchling (packages=["content_creator"]).
+#    On copie avant `uv sync` pour profiter du cache de couches Docker.
+COPY pyproject.toml uv.lock README.md ./
+COPY content_creator ./content_creator
+COPY control_panel ./control_panel
+
+# 2) Installe les deps runtime + l'extra "panel" (fastapi, uvicorn, python-multipart).
+RUN uv sync --frozen --extra panel
+
+EXPOSE 8080
+
+# Note : les runs sont sérialisés en interne ; un seul worker uvicorn suffit et
+# évite de dupliquer l'exécuteur de runs.
+CMD ["uv", "run", "uvicorn", "control_panel.backend.main:app", "--host", "0.0.0.0", "--port", "8080"]

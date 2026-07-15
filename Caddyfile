@@ -1,0 +1,35 @@
+# =============================================================================
+# Caddyfile — reverse proxy + HTTPS automatique + mot de passe.
+#
+# À ÉDITER avant le premier lancement :
+#   1) Remplace "content-creator.tondomaine.com" par TON domaine (celui pointé
+#      par l'enregistrement DNS A vers l'IP du VPS).
+#   2) Remplace la ligne basic_auth par ton utilisateur + hash bcrypt.
+#      Génère le hash avec :
+#        docker run --rm caddy caddy hash-password --plaintext 'TON_MOT_DE_PASSE'
+#      puis colle la sortie ($2a$14$....) à la place de REMPLACE_PAR_LE_HASH.
+#
+# Caddy obtient et renouvelle le certificat Let's Encrypt tout seul (ports 80+443).
+# =============================================================================
+
+content-creator.tondomaine.com {
+    encode gzip
+
+    # Toutes les requêtes /api/* -> conteneur backend (nom de service "backend").
+    @api path /api/*
+    handle @api {
+        reverse_proxy backend:8080
+    }
+
+    # Le reste -> fichiers statiques du front (SPA : fallback sur index.html).
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+    }
+
+    # Mot de passe unique pour tout le site (protège aussi l'API = tes crédits).
+    basic_auth {
+        admin REMPLACE_PAR_LE_HASH
+    }
+}

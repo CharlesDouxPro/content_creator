@@ -95,6 +95,13 @@ def deepinfra_post(url: str, payload: dict, token: str = None) -> dict:
     return r.json()
 
 
+def _is_ltx_provider(model_config: dict = None) -> bool:
+    """Le rôle pointe-t-il vers le serveur LTX local ? (provider_id == "ltx_local").
+    C'est le sélecteur PAR CHANNEL (choisi dans le panneau) qui active le backend LTX,
+    en complément des flags globaux USE_LTX_* de VIDEO_BACKEND_CONFIG."""
+    return bool(model_config) and model_config.get("provider_id") == "ltx_local"
+
+
 def _deepinfra_inference(model_config: dict, fallback_url: str) -> tuple[str, str]:
     """Depuis un ModelConfig {model_name, provider}, dérive l'URL d'inférence brute
     DeepInfra (/v1/inference/{model}) et le token. Le provider expose le base_url
@@ -597,17 +604,18 @@ def generate_lipsync(
     ltx_params: dict = None,
     model_config: dict = None,
 ) -> str:
-    """[A-roll] Tête parlante. Deux backends selon VIDEO_BACKEND_CONFIG :
+    """[A-roll] Tête parlante. Deux backends, LTX activé par le flag global
+    USE_LTX_LIPSYNC OU par le provider "ltx_local" du rôle lip_sync du channel :
 
     - DeepInfra/Pruna (défaut) : anime le portrait piloté PAR L'AUDIO (image+audio),
       l'audio sert aussi de bande-son. Retourne le clip brut (audio inclus).
-    - LTX local (USE_LTX_LIPSYNC) : le serveur LTX n'a pas d'équivalent image+audio.
+    - LTX local (USE_LTX_LIPSYNC ou provider ltx_local) : le serveur LTX n'a pas d'équivalent image+audio.
       On fait donc de l'IMAGE-TO-VIDEO depuis le portrait (mouvement piloté par le
       prompt), durée calée sur l'audio de narration, puis on muxe la narration TTS
       comme bande-son (le clip rendu N'inclut PAS l'audio -> _render_spec doit le
       remettre, cf. video_tools). `audio_path` = fichier local de narration.
     """
-    if VIDEO_BACKEND_CONFIG["use_ltx_lipsync"]:
+    if VIDEO_BACKEND_CONFIG["use_ltx_lipsync"] or _is_ltx_provider(model_config):
         return _ltx_talking_head(
             portrait_url, video_prompt, seed, dest, audio_path, ltx_params
         )
@@ -739,10 +747,11 @@ def generate_broll(
     ltx_params: dict = None,
     model_config: dict = None,
 ) -> str:
-    """[B-roll] Plan cinématographique. Deux backends selon VIDEO_BACKEND_CONFIG :
+    """[B-roll] Plan cinématographique. Deux backends, LTX activé par le flag global
+    USE_LTX_BROLL OU par le provider "ltx_local" du rôle video_generator du channel :
 
     - DeepInfra/Wan (défaut) : i2v depuis l'image de réf (media).
-    - LTX local (USE_LTX_BROLL) : i2v via le serveur LTX local (POST /generate).
+    - LTX local (USE_LTX_BROLL ou provider ltx_local) : i2v via le serveur LTX local (POST /generate).
     Dans les deux cas l'audio du clip est remplacé par la narration en aval
     (reframe_vertical(audio_in=...)), donc l'audio généré ici n'a pas d'importance.
 
@@ -764,7 +773,7 @@ def generate_broll(
             f"{shot}. Cinematic, coherent and consistent style, smooth natural motion."
         )
 
-    if VIDEO_BACKEND_CONFIG["use_ltx_broll"]:
+    if VIDEO_BACKEND_CONFIG["use_ltx_broll"] or _is_ltx_provider(model_config):
         p = dict(ltx_params or {})
         ltx_client.health()  # fail-fast si serveur down
         local_img = None

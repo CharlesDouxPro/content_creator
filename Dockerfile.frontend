@@ -1,0 +1,18 @@
+# =============================================================================
+# Dockerfile.frontend — build du front React/Vite, servi par Caddy.
+# Étape 1 : build statique (dist/). Étape 2 : image Caddy qui sert dist/ + fait
+# HTTPS automatique + proxy /api -> backend. Le Caddyfile est monté au runtime
+# (voir docker-compose.yml) pour pouvoir éditer domaine/mot de passe sans rebuild.
+# =============================================================================
+
+# --- Étape 1 : build ---------------------------------------------------------
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY control_panel/frontend/package.json control_panel/frontend/package-lock.json ./
+RUN npm ci
+COPY control_panel/frontend/ ./
+RUN npm run build          # -> /app/dist
+
+# --- Étape 2 : serveur web ---------------------------------------------------
+FROM caddy:2-alpine
+COPY --from=build /app/dist /srv
