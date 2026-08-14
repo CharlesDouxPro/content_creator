@@ -20,6 +20,11 @@ export type VideoItem = S['VideoItem']
 export type RunInfo = S['RunInfo']
 export type ElevenLabsVoice = S['ElevenLabsVoice']
 
+// Credentials des providers d'inférence (base_url + api_key, définis une seule fois).
+// Manuels (pas encore dans types.ts) : régénérer types.ts pour les dériver.
+export type ProviderConfig = { name: string; base_url: string; api_key_set: boolean }
+export type ProviderUpdate = { base_url: string; api_key: string }
+
 export type Role = keyof ModelPool
 export const ROLES: Role[] = [
   'master_mind', 'slm', 'lip_sync', 'video_generator', 'voice_generator',

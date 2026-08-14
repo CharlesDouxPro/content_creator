@@ -24,7 +24,6 @@ Tous les channels sont traités EN PARALLÈLE par la pipeline.
 """
 
 from content_creator.config.schema import (  # noqa: F401  (ré-exports pour l'aval)
-    PROVIDERS,
     ProviderConfig,
     ModelConfig,
     PoolModelConfig,

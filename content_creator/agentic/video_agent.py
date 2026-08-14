@@ -23,6 +23,7 @@ from content_creator.agentic.video_tools import (
     VideoSession, openai_tool_schemas, dispatch, cleanup_fetched_images,
 )
 from content_creator.agentic.video_skills import get_skill
+from content_creator.agentic.model_prompting import list_style_skills
 from content_creator.agentic.ltx_prompting import build_prompt_guide
 from content_creator.agentic.trace import Tracer
 
@@ -138,10 +139,18 @@ def run_agent(content: str = None, skill_name: str = "avatar_story",
     client = OpenAI(api_key=master_mind["provider"]["token"],
                     base_url=master_mind["provider"]["base_url"])
     agent_model = master_mind.get("model_name") or AGENT_MODEL
+    video_model = models.get("video_generator")
     tools = openai_tool_schemas(skill.tool_names)
-    # skill (réalisation) + compétence de prompting du moteur vidéo (LTX), ADAPTÉE
-    # au backend actif (i2v vs t2v, résolution/fps réellement rendus).
-    system = skill.system_prompt + "\n\n" + build_prompt_guide(skill.tool_names)
+    # Si le modèle de génération apporte des skills de STYLE (ex. MiniMax H3), on EXPOSE le tool
+    # de chargement à la demande (masqué par défaut) pour que le master pioche lui-même son style.
+    if list_style_skills(video_model):
+        names = {t["function"]["name"] for t in tools}
+        if "load_h3_style" not in names:
+            tools = tools + openai_tool_schemas(["load_h3_style"])
+    # skill (réalisation) + compétence de prompting du moteur vidéo, PIOCHÉE SELON LE MODÈLE
+    # câblé sur `video_generator` (ex. skill H3 dédié) et, à défaut, LTX adapté au backend actif.
+    system = skill.system_prompt + "\n\n" + build_prompt_guide(
+        skill.tool_names, video_model=video_model)
     if mood:   # le mood pilote les CHOIX DE RÉALISATION du master (sinon: réalisation classique)
         system += (
             f"\n\n## MOOD (high priority)\n"

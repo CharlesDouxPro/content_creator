@@ -37,6 +37,11 @@ from content_creator.pipelines.processed import is_processed, mark_processed
 # ========================
 TOOLS = {}
 
+# Tools EXCLUS de l'exposition « tous les tools » (skill.tool_names = None => créateur libre) :
+# ils ne sont pertinents que dans un contexte précis (ex. load_h3_style seulement si le
+# video_generator est un modèle MiniMax H3). run_agent les ajoute EXPLICITEMENT le cas échéant.
+HIDDEN_TOOLS = {"load_h3_style"}
+
 
 def tool(schema: dict):
     """Enregistre une fonction comme tool. `schema` = {name, description, parameters}."""
@@ -47,8 +52,12 @@ def tool(schema: dict):
 
 
 def openai_tool_schemas(names=None) -> list:
-    """Schémas au format OpenAI tools, filtrés sur `names` (les tools d'un skill) si fourni."""
-    items = TOOLS.values() if names is None else [TOOLS[n] for n in names if n in TOOLS]
+    """Schémas au format OpenAI tools. `names` fourni => filtre sur ces tools (dans l'ordre) ;
+    None => TOUS les tools SAUF ceux masqués (HIDDEN_TOOLS), qui doivent être demandés nommément."""
+    if names is None:
+        items = [t for n, t in TOOLS.items() if n not in HIDDEN_TOOLS]
+    else:
+        items = [TOOLS[n] for n in names if n in TOOLS]
     return [{"type": "function", "function": t["schema"]} for t in items]
 
 
@@ -434,6 +443,32 @@ def write_script(session: VideoSession, style: str = "") -> dict:
         return {"status": "error", "error": "script writing failed"}
     session.script = script
     return {"status": "ok", "script": script}
+
+
+# ========================
+# TOOLS — skill de STYLE (spécifique modèle, ex. MiniMax H3)
+# ========================
+@tool({
+    "name": "load_h3_style",
+    "description": "Loads the FULL guide of ONE H3 style skill that YOU chose from the catalog in "
+                   "your instructions (e.g. 'minimalist-product-ad-generator', '3d-animation-short-"
+                   "generator'). Use it ONCE, BEFORE planning shots, when the brief clearly matches a "
+                   "style: the returned guide gives you the visual language, camera and structure to "
+                   "follow when writing your video prompts. Only available when generating with MiniMax H3.",
+    "parameters": {"type": "object", "properties": {
+        "name": {"type": "string", "description": "Exact `name` of the style skill from the catalog."},
+    }, "required": ["name"]},
+})
+def load_h3_style(session: VideoSession, name: str) -> dict:
+    from content_creator.agentic.model_prompting import load_style_skill
+    video_model = (session.models or {}).get("video_generator")
+    try:
+        guide = load_style_skill(video_model, name)
+    except KeyError as e:
+        return {"status": "error", "error": str(e)}
+    return {"status": "ok", "skill": name, "guide": guide,
+            "note": "Follow this as STYLE/prompting guidance; keep orchestrating with your own tools "
+                    "(add_talking_clip/add_broll_clip/add_media_clip/assemble_video)."}
 
 
 # ========================

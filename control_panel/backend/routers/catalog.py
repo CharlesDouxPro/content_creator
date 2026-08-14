@@ -9,7 +9,8 @@ from pydantic import BaseModel
 
 from content_creator.agentic.video_skills import list_skills, get_skill
 from content_creator.config.channels import CHIRP3_HD_VOICES
-from content_creator.config.schema import PROVIDERS, ROLES, DEFAULT_POOL
+from content_creator.config.schema import ROLES, DEFAULT_POOL
+from inference_engine.providers import load_providers
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -77,8 +78,8 @@ def catalog_voices() -> VoicesInfo:
 @router.get("/providers", response_model=list[ProviderInfo])
 def catalog_providers() -> list[ProviderInfo]:
     return [
-        ProviderInfo(id=pid, base_url=cfg["base_url"], token_set=bool(cfg["token"]))
-        for pid, cfg in PROVIDERS.items()
+        ProviderInfo(id=name, base_url=p.base_url, token_set=bool(p.api_key))
+        for name, p in load_providers().items()
     ]
 
 
@@ -105,7 +106,8 @@ def catalog_models() -> ModelsInfo:
 @router.get("/elevenlabs-voices", response_model=list[ElevenLabsVoice])
 def elevenlabs_voices() -> list[ElevenLabsVoice]:
     """Voix du compte ElevenLabs (id + nom + labels). Vide si la clé est absente/invalide."""
-    token = (PROVIDERS.get("elevenlabs") or {}).get("token")
+    el = load_providers().get("elevenlabs")
+    token = el.api_key if el else ""
     if not token:
         return []
     try:

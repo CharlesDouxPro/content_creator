@@ -2,6 +2,7 @@
 import type {
   Channel, SkillInfo, ProviderInfo, VoicesInfo, ModelsInfo,
   CharacterAsset, VideoItem, RunInfo, ElevenLabsVoice,
+  ProviderConfig, ProviderUpdate,
 } from './schemas'
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -28,6 +29,13 @@ export const api = {
   voices: () => req<VoicesInfo>('/api/catalog/voices'),
   models: () => req<ModelsInfo>('/api/catalog/models'),
   elevenLabsVoices: () => req<ElevenLabsVoice[]>('/api/catalog/elevenlabs-voices'),
+
+  // Providers (credentials nommés, renseignés une seule fois, stockés en GCS)
+  providersConfig: () => req<ProviderConfig[]>('/api/providers'),
+  saveProvider: (name: string, body: ProviderUpdate) =>
+    req<ProviderConfig>(`/api/providers/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteProvider: (name: string) =>
+    req<void>(`/api/providers/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 
   // Channels
   listChannels: () => req<Channel[]>('/api/channels'),

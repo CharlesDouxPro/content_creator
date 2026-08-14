@@ -11,7 +11,7 @@ Pas d'auth (POC), CORS ouvert au serveur de dev Vite (localhost:5173).
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from control_panel.backend.routers import catalog, channels, characters, runs, gallery
+from control_panel.backend.routers import catalog, channels, characters, gallery, providers, runs
 
 app = FastAPI(
     title="content_creator — Panneau de contrôle",
@@ -30,6 +30,7 @@ app.add_middleware(
 )
 
 app.include_router(catalog.router)
+app.include_router(providers.router)
 app.include_router(channels.router)
 app.include_router(characters.router)
 app.include_router(runs.router)

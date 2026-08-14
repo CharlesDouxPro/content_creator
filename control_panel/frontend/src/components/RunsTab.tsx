@@ -15,14 +15,22 @@ export function RunsTab() {
 
   useEffect(() => { api.listChannels().then(setChannels).catch((e) => setError(String(e))) }, [])
 
-  // Polling tant qu'un run est actif.
+  // Ref qui suit toujours le dernier état des runs, pour que l'effet de polling
+  // ne dépende pas de `runs` (sinon chaque setRuns relance l'effet → boucle de fetch).
+  const runsRef = useRef<RunInfo[]>([])
+  useEffect(() => { runsRef.current = runs }, [runs])
+
+  // Polling tant qu'un run est actif. L'effet ne tourne qu'une fois.
   useEffect(() => {
-    const active = runs.some((r) => r.status === 'running' || r.status === 'queued')
-    if (!active && runs.length > 0) return
-    const t = setInterval(() => { api.listRuns().then(setRuns).catch(() => {}) }, 2000)
-    api.listRuns().then(setRuns).catch(() => {})
+    const poll = () => { api.listRuns().then(setRuns).catch(() => {}) }
+    poll()
+    const t = setInterval(() => {
+      const prev = runsRef.current
+      const active = prev.some((r) => r.status === 'running' || r.status === 'queued')
+      if (active || prev.length === 0) poll()
+    }, 2000)
     return () => clearInterval(t)
-  }, [runs])
+  }, [])
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight

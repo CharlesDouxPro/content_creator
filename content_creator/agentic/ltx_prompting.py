@@ -192,19 +192,38 @@ def _format_specs() -> str:
 """
 
 
-def build_prompt_guide(tool_names=None) -> str:
-    """Assemble le guide de prompting ADAPTÉ AU BACKEND ACTIF et aux TOOLS du skill.
+# Rappel de FORMAT générique (moteurs non-LTX) : _format_specs() ci-dessus est propre à LTX
+# (clés ltx_* de VIDEO_BACKEND_CONFIG). Pour un moteur qui apporte son propre skill de
+# prompting (cf. model_prompting), on ne garde que la contrainte réseaux sociaux, agnostique.
+_SOCIAL_FORMAT_NOTE = """\
+# FORMAT — vertical 9:16 for social media (respect it in your prompts)
+Compose for MOBILE: VERTICAL 9:16 frame, subject centered/high, margin at the bottom for
+subtitles, action readable at small size. Keep shots SHORT (2–10 s) and the pacing dynamic.
+"""
 
-    - DeepInfra (défaut) : guide classique (l'image de réf existe aussi côté Wan, mais
-      la doc historique reste valable) + rappel de format.
-    - LTX local (i2v) : ajoute la section i2v (mouvement/caméra, pas la scène).
-    - LipDub : ajoute LIPDUB_GUIDE UNIQUEMENT si le skill expose un tool lipdub
-      (cf. LIPDUB_TOOL_NAMES) — sinon le guide reste dormant (pas de référence fantôme).
-    `tool_names` = liste des tools du skill (None => tous les tools enregistrés)."""
+
+def build_prompt_guide(tool_names=None, video_model=None) -> str:
+    """Assemble le guide de prompting ADAPTÉ AU MODÈLE de génération, AU BACKEND et aux TOOLS.
+
+    - Modèle avec skill dédié (cf. model_prompting, ex. MiniMax H3) : on INJECTE le guide de
+      prompting propre au moteur (piochée dans model_skills/<model>/) À LA PLACE du guide LTX,
+      + un rappel de format réseaux sociaux générique.
+    - Sinon, moteur LTX/Wan (défaut) : guide LTX classique + specs de format LTX ; en LTX local
+      (i2v) on ajoute la section i2v (mouvement/caméra, pas la scène).
+    - LipDub / lip-sync : politiques AGNOSTIQUES au moteur, ajoutées selon les TOOLS du skill.
+
+    `tool_names` = liste des tools du skill (None => tous les tools enregistrés).
+    `video_model` = ModelConfig du rôle video_generator (aiguille le skill de prompting du moteur)."""
     c = VIDEO_BACKEND_CONFIG
-    parts = [LTX_PROMPT_GUIDE, _format_specs()]
-    if c["use_ltx_broll"] or c["use_ltx_lipsync"]:
-        parts.append(_LTX_I2V_GUIDE)
+    # Skill de prompting SPÉCIFIQUE AU MODÈLE (si le video_generator en apporte un).
+    from content_creator.agentic.model_prompting import load_engine_prompt_guide
+    engine_guide = load_engine_prompt_guide(video_model)
+    if engine_guide is not None:
+        parts = [engine_guide, _SOCIAL_FORMAT_NOTE]
+    else:
+        parts = [LTX_PROMPT_GUIDE, _format_specs()]
+        if c["use_ltx_broll"] or c["use_ltx_lipsync"]:
+            parts.append(_LTX_I2V_GUIDE)
     # tool_names=None => créateur libre (accès à TOUS les tools) : on résout la liste
     # réelle des tools enregistrés pour décider des sections conditionnelles.
     from content_creator.agentic.video_tools import TOOLS

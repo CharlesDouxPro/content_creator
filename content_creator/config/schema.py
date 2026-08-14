@@ -17,55 +17,35 @@ channels.py se contente d'appeler `load_channels()` + `to_pipeline_config()` pou
 
 from __future__ import annotations
 
-import os
 import json
-from typing import Optional, TypedDict
+import os
+from typing import TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from content_creator.config.config import API_KEYS, VIDEO_BACKEND_CONFIG
 from content_creator.agentic.video_skills import list_skills
+from inference_engine.providers import load_providers
+
 
 # ============================================================================
-# Providers — base_url public + token depuis l'env. Le JSON ne référence qu'un
-# `provider_id` ; le token est injecté ici à la résolution (jamais sérialisé).
+# Providers — le REGISTRE (base_url + api_key, nommés) vit désormais dans
+# inference_engine/providers.py (défini/renseigné depuis le front, stocké en GCS).
+# Ici on ne fait que le RÉSOUDRE vers la forme {base_url, token} attendue en aval.
+# Le JSON channels ne référence qu'un `provider_id` (nom) ; la clé est injectée à la
+# résolution (jamais sérialisée dans channels.json).
 # ============================================================================
 class ProviderConfig(TypedDict):
     base_url: str
     token: str
 
 
-PROVIDERS: dict[str, ProviderConfig] = {
-    "arlq_deepinfra": {
-        "base_url": "https://api.deepinfra.com/v1/openai",
-        "token": os.getenv("ARLQ_DEEPINFRA_TOKEN", ""),
-    },
-    "charles_deepinfra": {
-        "base_url": "https://api.deepinfra.com/v1/openai",
-        "token": os.getenv("CHARLES_DEEPINFRA_TOKEN", ""),
-    },
-    # Le TTS n'est pas DeepInfra : provider = Google Cloud Text-to-Speech.
-    "google_tts": {
-        "base_url": "https://texttospeech.googleapis.com/v1",
-        "token": str(API_KEYS.get("google_tts_api_key") or ""),
-    },
-    # Synthèse vocale ElevenLabs : token = ELEVENLABS_API_KEY. Le `model_name` du rôle
-    # voice_generator (ou character.voice) = un voice_id ElevenLabs.
-    "elevenlabs": {
-        "base_url": "https://api.elevenlabs.io",
-        "token": os.getenv("ELEVENLABS_API_KEY", ""),
-    },
-    # Serveur LTX-2.3 LOCAL (cf. repo LTX-video-server). Choisir ce provider sur le rôle
-    # video_generator et/ou lip_sync -> ce channel génère via le serveur LTX (POST /generate,
-    # /lipsync) au lieu de DeepInfra. Pas de token (serveur local sans auth). Le `model_name`
-    # est cosmétique côté client : c'est le serveur qui décide du checkpoint chargé ; c'est le
-    # provider_id qui aiguille le backend (cf. capabilities._is_ltx_provider). L'URL/timeout du
-    # serveur restent pilotés par VIDEO_BACKEND_CONFIG (LTX_SERVER_URL, LTX_TIMEOUT).
-    "ltx_local": {
-        "base_url": str(VIDEO_BACKEND_CONFIG["ltx_server_url"]),
-        "token": "",
-    },
-}
+def get_providers() -> dict[str, ProviderConfig]:
+    """Registre résolu {base_url, token} depuis inference_engine (source de vérité)."""
+    return {
+        name: {"base_url": p.base_url, "token": p.api_key}
+        for name, p in load_providers().items()
+    }
+
 
 ROLES = ("master_mind", "slm", "lip_sync", "video_generator", "voice_generator")
 
@@ -102,8 +82,9 @@ class ModelSpec(BaseModel):
     @field_validator("provider_id")
     @classmethod
     def _known_provider(cls, v: str) -> str:
-        if v not in PROVIDERS:
-            raise ValueError(f"provider_id inconnu: {v!r} (dispo: {sorted(PROVIDERS)})")
+        known = load_providers()
+        if v not in known:
+            raise ValueError(f"provider_id inconnu: {v!r} (dispo: {sorted(known)})")
         return v
 
 
@@ -122,12 +103,12 @@ class Character(BaseModel):
     """Personnage nommé (miroir éditable de CharacterConfig). Tous champs optionnels."""
     model_config = ConfigDict(extra="forbid")
 
-    image: Optional[str] = None          # chemin local OU URL GCS publique (i2v / lip-sync)
-    voice: Optional[str] = None          # nom de voix (complet Chirp3 ou court Gemini)
-    style: Optional[str] = None          # ton (Gemini TTS uniquement)
-    voice_model: Optional[str] = None    # modelName TTS (requis pour `style`)
-    language: Optional[str] = None       # locale (ex. "fr-FR")
-    description: Optional[str] = None     # apparence/personnalité (injectée dans les shots)
+    image: str | None = None          # chemin local OU URL GCS publique (i2v / lip-sync)
+    voice: str | None = None          # nom de voix (complet Chirp3 ou court Gemini)
+    style: str | None = None          # ton (Gemini TTS uniquement)
+    voice_model: str | None = None    # modelName TTS (requis pour `style`)
+    language: str | None = None       # locale (ex. "fr-FR")
+    description: str | None = None     # apparence/personnalité (injectée dans les shots)
 
 
 class Ressources(BaseModel):
@@ -137,7 +118,7 @@ class Ressources(BaseModel):
     urls: list[str] = Field(default_factory=list)
     local_paths: list[str] = Field(default_factory=list)
     audio_paths: list[str] = Field(default_factory=list)
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class Context(BaseModel):
@@ -187,11 +168,12 @@ DEFAULT_POOL = ModelPool(
 # ============================================================================
 def resolve_pool(pool: ModelPool) -> PoolModelConfig:
     """ModelPool éditable -> PoolModelConfig résolu (provider_id -> {base_url, token})."""
+    provs = get_providers()
     return {  # type: ignore[return-value]
         role: {
             "model_name": spec.model_name,
             "provider_id": spec.provider_id,
-            "provider": PROVIDERS[spec.provider_id],
+            "provider": provs[spec.provider_id],
         }
         for role, spec in ((r, getattr(pool, r)) for r in ROLES)
     }

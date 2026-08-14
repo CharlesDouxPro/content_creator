@@ -4,6 +4,7 @@ import { CatalogProvider } from './catalog'
 import { ChannelsTab } from './components/ChannelsTab'
 import { CharactersTab } from './components/CharactersTab'
 import { CatalogTab } from './components/CatalogTab'
+import { ProvidersTab } from './components/ProvidersTab'
 import { RunsTab } from './components/RunsTab'
 import { GalleryTab } from './components/GalleryTab'
 
@@ -13,6 +14,7 @@ const TABS = [
   { id: 'runs', label: 'Runs', el: <RunsTab /> },
   { id: 'gallery', label: 'Galerie', el: <GalleryTab /> },
   { id: 'catalog', label: 'Catalogue', el: <CatalogTab /> },
+  { id: 'providers', label: 'Providers', el: <ProvidersTab /> },
 ] as const
 
 export default function App() {

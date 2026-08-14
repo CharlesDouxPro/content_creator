@@ -14,7 +14,6 @@ librement la production.
 import os
 from dataclasses import dataclass
 
-
 SKILLS_DIR = os.path.join(os.path.dirname(__file__), "skills")
 
 
