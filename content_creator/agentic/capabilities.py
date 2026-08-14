@@ -19,7 +19,8 @@ from openai import OpenAI
 
 from content_creator.config.config import API_KEYS, VIDEO_BACKEND_CONFIG
 from content_creator.pipelines.modules import GCSManager, ArticleSummarizer
-from content_creator.agentic import ltx_client
+from content_creator.agentic import ltx_client, sglang_video_client
+from content_creator.agentic.model_prompting import uses_sglang_video
 
 # ========================
 # CONFIG
@@ -738,6 +739,38 @@ def _media_image_url(media: list) -> str | None:
     return None
 
 
+def _sglang_broll(prompt: str, duration: int, seed: int, ref_url: str, dest: str,
+                  model_config: dict, ltx_params: dict = None) -> str:
+    """[B-roll] Génération AUDIOVISUELLE via l'endpoint vidéo async SGLang (MiniMax-H3 / LTX-2.5).
+    `fl2va` si une image de réf est fournie (elle devient la 1re frame effective, frame_index 0),
+    sinon `t2va`. L'audio natif du MP4 est REMPLACÉ par la narration TTS en aval (reframe_vertical),
+    comme pour les autres backends. `ltx_params` (optionnels) : duration_s, num_inference_steps,
+    flow_shift, audio_flow_shift priment sur les défauts."""
+    provider = model_config["provider"]
+    base_url, token = provider["base_url"], provider.get("token")
+    p = dict(ltx_params or {})
+    dur = float(p.pop("duration_s", None) or duration)
+    dur = max(4.0, min(15.0, dur))                 # H3 / LTX-2.5 : durées 4–15 s inclusives
+    conditions, task = [], "t2va"
+    if ref_url:
+        task = "fl2va"                             # l'image = 1re frame effective du clip (i2v)
+        conditions = [{"type": "image", "uri": ref_url, "role": "keyframe", "frame_index": 0}]
+    payload = {
+        "model": model_config["model_name"],
+        "prompt": prompt,
+        "seconds": int(round(dur)),
+        "task": task,
+        "conditions": conditions,
+        "target": {"short_edge": OUT_W, "aspect_ratio": RATIO, "duration_seconds": dur},
+        "num_outputs_per_prompt": 1,
+        "num_inference_steps": int(p.pop("num_inference_steps", 50)),
+        "flow_shift": float(p.pop("flow_shift", 12.0)),
+        "audio_flow_shift": float(p.pop("audio_flow_shift", 3.0)),
+        "seed": seed,
+    }
+    return sglang_video_client.generate(base_url, token, payload, dest)
+
+
 def generate_broll(
     shot: str,
     duration: int,
@@ -772,6 +805,10 @@ def generate_broll(
         prompt = (
             f"{shot}. Cinematic, coherent and consistent style, smooth natural motion."
         )
+
+    # Endpoint vidéo async SGLang (MiniMax-H3 / LTX-2.5, serveur distant) : audiovisuel via /v1/videos.
+    if uses_sglang_video(model_config):
+        return _sglang_broll(prompt, duration, seed, ref_url, dest, model_config, ltx_params)
 
     if VIDEO_BACKEND_CONFIG["use_ltx_broll"] or _is_ltx_provider(model_config):
         p = dict(ltx_params or {})

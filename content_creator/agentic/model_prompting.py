@@ -30,6 +30,17 @@ STYLE_LOADER_TOOL = "load_style_skill"
 # Skill de prompting utilisé quand le modèle `video_generator` n'en a pas de dédié (Wan, etc.).
 DEFAULT_MODEL_KEY = "ltx"
 
+# Modèles servis par l'endpoint vidéo ASYNCHRONE de SGLang (POST /v1/videos), audiovisuels
+# (cf. sglang_video_client). Clés du registre MODEL_SKILLS. Aiguille le BACKEND d'inférence
+# de generate_broll (distinct du prompting). NB : `ltx` générique (2.3) n'en est PAS (rendu via
+# ltx_client local / Wan) ; seul LTX-2.5 passe par SGLang.
+SGLANG_VIDEO_KEYS = {"minimax_h3", "ltx_2_5"}
+
+
+def uses_sglang_video(video_model) -> bool:
+    """True si le modèle `video_generator` est servi via l'endpoint vidéo async SGLang."""
+    return resolve_model_skill(video_model) in SGLANG_VIDEO_KEYS
+
 
 # ============================================================================
 # Registre : quel modèle -> quel dossier + prompting à inliner + styles exposés.
