@@ -1,30 +1,21 @@
 #!/usr/bin/env python3
 """
-model_prompting.py — "Skills" de prompting SPÉCIFIQUES AU MODÈLE de génération vidéo.
+model_prompting.py — Skills de PROMPTING (+ STYLE) par MODÈLE de génération vidéo.
 
-Certains modèles vidéo sont livrés avec LEURS PROPRES skills (rédaction de prompts +
-skills de STYLE). Ce module les charge DEPUIS DES DOSSIERS embarqués, en fonction du
-modèle réellement câblé sur le rôle `video_generator` du channel — l'agent "pioche dans
-le bon dossier de skills selon le modèle avec lequel il génère".
+Chaque modèle a son dossier `model_skills/<model>/` avec des skills rangés par FINALITÉ :
 
-Deux niveaux :
-  - le skill de prompting de BASE (grammaire du moteur, ex. h3-prompt-writing) est
-    INLINÉ d'office dans le system prompt du master (toujours nécessaire) ;
-  - les skills de STYLE (ex. minimalist-product-ad, 3d-animation-short…) sont listés
-    dans un CATALOGUE injecté au prompt : le master CHOISIT LUI-MÊME le plus adapté au
-    brief et charge son guide complet à la demande via le tool `load_h3_style`
-    (chargement paresseux — les SKILL.md de style pèsent 8–32k car. chacun, on n'en
-    inline qu'UN, celui choisi).
+  - `prompting/` : comment écrire de BONS prompts pour CE moteur (grammaire, champs, notation).
+      Toujours inliné dans le system prompt du master. Le modèle sans skill dédié retombe sur
+      le prompting par DÉFAUT (`ltx`, grammaire cinématographique générique — valable aussi Wan).
+  - `styles/`    : skills de STYLE optionnels (un sous-dossier = un style). Listés en CATALOGUE ;
+      le master CHOISIT LUI-MÊME le plus adapté et charge son guide complet À LA DEMANDE via le
+      tool `load_style_skill` (chargement paresseux : les SKILL.md de style pèsent 8–32k car.).
 
-Organisation (miroir de ltx_prompting.py + skills/) :
-  - les CONTENUS vivent sous `model_skills/<model>/<skill>/…` (SKILL.md + references,
-    tels que publiés en amont — ici la suite de skills MiniMax-H3) ;
-  - le REGISTRE `MODEL_SKILLS` associe une empreinte de `model_name` -> le dossier, le
-    guide de base à inliner, et l'exposition des skills de style.
+Le FORMAT/rendu (résolution, fps, régime i2v, lip-sync…) N'est PAS ici : il dépend du BACKEND et
+de `.env`, pas du modèle — il reste géré en code (cf. ltx_prompting.build_prompt_guide).
 
-Ajouter un modèle = déposer ses skills sous `model_skills/<model>/`, puis une entrée dans
-`MODEL_SKILLS`. Aucun modèle reconnu -> None (l'appelant retombe sur le guide par défaut,
-cf. ltx_prompting.build_prompt_guide).
+Ajouter un modèle = déposer `model_skills/<model>/prompting/…` (+ `styles/…` au besoin) et une
+entrée dans `MODEL_SKILLS`. Aucun autre code à toucher.
 """
 
 import os
@@ -34,33 +25,73 @@ from content_creator.agentic.video_skills import _parse_frontmatter
 MODEL_SKILLS_DIR = os.path.join(os.path.dirname(__file__), "model_skills")
 
 # Tool que le master appelle pour charger le guide complet du style qu'il a CHOISI.
-STYLE_LOADER_TOOL = "load_h3_style"
+STYLE_LOADER_TOOL = "load_style_skill"
+
+# Skill de prompting utilisé quand le modèle `video_generator` n'en a pas de dédié (Wan, etc.).
+DEFAULT_MODEL_KEY = "ltx"
 
 
 # ============================================================================
-# Registre : quel modèle -> quel dossier de skills, guide de base, skills de style.
+# Registre : quel modèle -> quel dossier + prompting à inliner + styles exposés.
 #
-# `match`         : prédicat sur le `model_name` NORMALISÉ (minuscules). Match par empreinte
-#                   (sous-chaînes) pour rester robuste au préfixe provider et au versioning
-#                   (ex. "MiniMaxAI/MiniMax-H3", "minimax-h3-01", …).
-# `dir`           : dossier racine sous model_skills/.
-# `prompt_files`  : fichiers (relatifs à `dir`) du guide de BASE, concaténés et inlinés dans
-#                   le system prompt. Auto-suffisant (le master ne lit pas de fichiers à la
-#                   volée) : SKILL.md donne le workflow ; base-en.txt la structure/les règles.
-# `styles`        : True => exposer les sous-dossiers (hors `style_exclude`) comme skills de
-#                   STYLE sélectionnables par le master (catalogue + tool load_h3_style).
-# `style_exclude` : sous-dossiers qui NE SONT PAS des styles (ici le guide de base).
+# `match`           : prédicat sur le `model_name` NORMALISÉ (minuscules), par EMPREINTE
+#                     (sous-chaînes) — robuste au préfixe provider et au versioning
+#                     (ex. "MiniMaxAI/MiniMax-H3", "Lightricks/LTX-Video-2.3", "ltx-2").
+# `dir`             : dossier racine sous model_skills/.
+# `prompting_files` : fichiers (relatifs à `dir`) du guide de prompting, concaténés et inlinés.
+#                     Auto-suffisant (le master ne lit pas de fichiers à la volée) : on inline
+#                     directement le contenu de référence.
+# `styles_dir`      : sous-dossier des styles (chaque sous-dossier avec un SKILL.md = un style),
+#                     ou None si le modèle n'a pas de styles.
+# `intro`           : (optionnel) préambule inliné avant le prompting (ex. « suis la structure
+#                     exactement, tout est inliné »).
+# `styles_note`     : (optionnel) mise en garde ajoutée au catalogue de styles.
 # ============================================================================
 MODEL_SKILLS = {
+    # LTX-2.5 AVANT le générique `ltx` : le match le plus spécifique doit gagner (resolve_model_skill
+    # renvoie le PREMIER match dans l'ordre d'insertion). Sans ça, "LTX-Video-2.5" tomberait sur `ltx`.
+    "ltx_2_5": {
+        "match": lambda name: "ltx" in name and ("2.5" in name or "2-5" in name),
+        "dir": "ltx_2_5",
+        "prompting_files": ["prompting/SKILL.md"],
+        "styles_dir": None,
+        "intro": (
+            "# SKILL — Video engine prompting (LTX-2.5)\n"
+            "Apply the guide below when you write each shot's video prompt (e.g. `shot_description`). "
+            "IMPORTANT for THIS harness: you do NOT output a standalone prompt to the user and you do "
+            "NOT paste anything into LTX yourself — you KEEP orchestrating with YOUR tools "
+            "(add_talking_clip / add_broll_clip / add_media_clip / assemble_video), writing ONE "
+            "Single-Shot prompt per shot. Ignore the skill's 'respond with the finished prompt' / "
+            "'ask the user' framing. Write the video prompt in ENGLISH; the narration text "
+            "(`text` / `narration_text`) stays in the video's language and is NOT translated."
+        ),
+    },
+    "ltx": {
+        "match": lambda name: "ltx" in name,
+        "dir": "ltx",
+        "prompting_files": ["prompting/SKILL.md"],
+        "styles_dir": None,
+    },
     "minimax_h3": {
         "match": lambda name: "minimax" in name and "h3" in name,
         "dir": "minimax_h3",
-        "prompt_files": [
-            "h3-prompt-writing/SKILL.md",
-            "h3-prompt-writing/references/base-en.txt",
+        "prompting_files": [
+            "prompting/h3-prompt-writing/SKILL.md",
+            "prompting/h3-prompt-writing/references/base-en.txt",
         ],
-        "styles": True,
-        "style_exclude": {"h3-prompt-writing"},
+        "styles_dir": "styles",
+        "intro": (
+            "# SKILL — Video engine prompting (MiniMax H3)\n"
+            "The active model ships its OWN prompt-writing skill. Follow the structure, field names, "
+            "section order and timing notation below EXACTLY when you write the video prompts (e.g. "
+            "`shot_description`). The reference material is inlined below (do not try to read files)."
+        ),
+        "styles_note": (
+            "These skills were written for MiniMax's own Hub agent — use each as STYLE & PROMPTING "
+            "guidance (visual language, camera, structure, pacing). Keep orchestrating with YOUR tools "
+            "(add_talking_clip / add_broll_clip / add_media_clip / assemble_video); IGNORE any mention "
+            "of canvas, choice cards or hub_* tools you do not have."
+        ),
     },
 }
 
@@ -74,7 +105,7 @@ def _model_name(video_model) -> str:
 
 
 def resolve_model_skill(video_model) -> str | None:
-    """Clé du registre `MODEL_SKILLS` correspondant au modèle `video_generator`, ou None."""
+    """Clé du registre correspondant au modèle `video_generator`, ou None si aucun match."""
     name = _model_name(video_model)
     if not name:
         return None
@@ -121,18 +152,15 @@ def _skill_meta(path: str) -> dict:
 
 
 def _style_dirs(spec: dict) -> list[str]:
-    """Sous-dossiers de style (contenant un SKILL.md), triés, hors `style_exclude`."""
-    base = os.path.join(MODEL_SKILLS_DIR, spec["dir"])
-    if not spec.get("styles") or not os.path.isdir(base):
+    """Sous-dossiers de style (contenant un SKILL.md) sous `styles_dir`, triés. [] si aucun."""
+    styles_dir = spec.get("styles_dir")
+    if not styles_dir:
         return []
-    exclude = spec.get("style_exclude") or set()
-    out = []
-    for name in sorted(os.listdir(base)):
-        if name in exclude:
-            continue
-        if os.path.isfile(os.path.join(base, name, "SKILL.md")):
-            out.append(name)
-    return out
+    base = os.path.join(MODEL_SKILLS_DIR, spec["dir"], styles_dir)
+    if not os.path.isdir(base):
+        return []
+    return [n for n in sorted(os.listdir(base))
+            if os.path.isfile(os.path.join(base, n, "SKILL.md"))]
 
 
 def list_style_skills(video_model) -> list[dict]:
@@ -141,7 +169,7 @@ def list_style_skills(video_model) -> list[dict]:
     if key is None:
         return []
     spec = MODEL_SKILLS[key]
-    base = os.path.join(MODEL_SKILLS_DIR, spec["dir"])
+    base = os.path.join(MODEL_SKILLS_DIR, spec["dir"], spec.get("styles_dir") or "")
     catalog = []
     for name in _style_dirs(spec):
         meta = _skill_meta(os.path.join(base, name, "SKILL.md"))
@@ -159,7 +187,7 @@ def load_style_skill(video_model, skill_name: str) -> str:
     available = _style_dirs(spec)
     if skill_name not in available:
         raise KeyError(f"style inconnu: {skill_name!r} (dispo: {available})")
-    path = os.path.join(MODEL_SKILLS_DIR, spec["dir"], skill_name, "SKILL.md")
+    path = os.path.join(MODEL_SKILLS_DIR, spec["dir"], spec["styles_dir"], skill_name, "SKILL.md")
     with open(path, encoding="utf-8") as f:
         _, body = _parse_frontmatter(f.read())
     return body
@@ -181,19 +209,18 @@ def _style_catalog_block(video_model) -> str | None:
     catalog = list_style_skills(video_model)
     if not catalog:
         return None
+    key = resolve_model_skill(video_model)
+    spec = MODEL_SKILLS[key]
     lines = [
-        "# H3 STYLE SKILLS — pick the ONE that best fits the brief (you decide)",
+        f"# STYLE SKILLS ({key}) — pick the ONE that best fits the brief (you decide)",
         "This model ships style-specific skills. If the brief/mood clearly matches one, CHOOSE it "
         f"and call the `{STYLE_LOADER_TOOL}` tool with its `name` to load its full guide BEFORE "
         "planning shots; then follow it when you write the video prompts. Pick at most ONE. If none "
-        "fits, skip this and rely on the base H3 prompting skill above.",
-        "NOTE: these skills were written for MiniMax's own Hub agent — use each as STYLE & PROMPTING "
-        "guidance (visual language, camera, structure, pacing). Keep orchestrating with YOUR tools "
-        "(add_talking_clip / add_broll_clip / add_media_clip / assemble_video); IGNORE any mention of "
-        "canvas, choice cards or hub_* tools you do not have.",
-        "",
-        "Available styles:",
+        "fits, skip this and rely on the base prompting skill above.",
     ]
+    if spec.get("styles_note"):
+        lines.append("NOTE: " + spec["styles_note"])
+    lines += ["", "Available styles:"]
     for c in catalog:
         desc = " ".join(c["description"].split())
         if len(desc) > 320:
@@ -202,36 +229,24 @@ def _style_catalog_block(video_model) -> str | None:
     return "\n".join(lines)
 
 
-def load_engine_prompt_guide(video_model) -> str | None:
-    """Guide de prompting AUTO-SUFFISANT du moteur `video_generator`, prêt à injecter dans le
-    system prompt — ou None si le modèle n'a pas de skill dédié (l'appelant garde le défaut).
+def load_prompting_guide(video_model) -> str:
+    """Guide de PROMPTING auto-suffisant du moteur `video_generator`, prêt à injecter dans le
+    system prompt. Retombe sur le prompting par DÉFAUT (`ltx`) si le modèle n'a pas de skill dédié
+    — retourne donc TOUJOURS un guide. Inclut le CATALOGUE de styles si le modèle en a.
 
-    Inclut : le guide de BASE (inliné) + le CATALOGUE des styles (le master en choisit un et
-    le charge à la demande via `load_h3_style`).
-    `video_model` = ModelConfig du rôle video_generator (dict {model_name, provider, …})
-    ou directement un nom de modèle."""
-    key = resolve_model_skill(video_model)
-    if key is None:
-        return None
+    `video_model` = ModelConfig du rôle video_generator (dict {model_name, provider, …}) ou un nom."""
+    key = resolve_model_skill(video_model) or DEFAULT_MODEL_KEY
     spec = MODEL_SKILLS[key]
     base = os.path.join(MODEL_SKILLS_DIR, spec["dir"])
     blocks = []
-    for rel in spec["prompt_files"]:
+    if spec.get("intro"):
+        blocks.append(spec["intro"])
+    for rel in spec["prompting_files"]:
         try:
             blocks.append(_read_prompt_file(base, rel))
         except OSError as e:
             print(f"[model_prompting] skill '{key}' : {rel} illisible ({e}) — ignoré.", flush=True)
-    if not blocks:
-        return None
-    header = (
-        f"# SKILL — Video engine prompting ({key})\n"
-        f"The active video-generation model ships its OWN prompt-writing skill. Follow the "
-        f"structure, field names, section order and timing notation below EXACTLY when you write "
-        f"the video prompts (e.g. `shot_description`) sent to the engine. The reference material "
-        f"is inlined below (do not try to read files)."
-    )
-    parts = [header, *blocks]
-    catalog = _style_catalog_block(video_model)
+    catalog = _style_catalog_block(video_model)   # None si le modèle n'a pas de styles
     if catalog:
-        parts.append(catalog)
-    return "\n\n".join(parts)
+        blocks.append(catalog)
+    return "\n\n".join(blocks)

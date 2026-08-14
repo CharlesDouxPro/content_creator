@@ -1,82 +1,20 @@
 #!/usr/bin/env python3
 """
-ltx_prompting.py — "Skill" de prompting du moteur de génération vidéo (LTX-2).
+ltx_prompting.py — Assemblage du guide injecté dans le system prompt du master + bits FORMAT/backend.
 
-Expertise injectée dans le system prompt du master pour qu'il rédige des prompts
-vidéo de qualité (les `shot_description` envoyés au moteur), en suivant le mood et
-le format réseaux sociaux. Distillé de la doc de prompting LTX-2.
+`build_prompt_guide()` compose ce que voit le master : (1) le skill de PROMPTING pioché SELON LE
+MODÈLE `video_generator` (délégué à model_prompting ; défaut = `ltx`, grammaire cinématographique
+générique — ce module n'héberge plus le texte, il vit dans model_skills/ltx/), (2) les contraintes
+de FORMAT qui dépendent du BACKEND (rendu LTX local i2v : specs LTX + régime image-to-video ; sinon
+rappel 9:16 social générique), (3) les politiques de TOOLS agnostiques (lip-sync, LipDub).
 
-Le guide est désormais ADAPTÉ AU BACKEND ACTIF (cf. build_prompt_guide) : en mode
-LTX local, le rendu se fait en IMAGE-TO-VIDEO (l'image fournit déjà la scène), donc
-le prompt doit décrire le MOUVEMENT / la CAMÉRA / l'audio, PAS la scène. On injecte
-aussi la résolution / le fps / la durée par défaut réellement utilisés.
+Le FORMAT reste ici (et non dans model_skills) car il dépend de `.env`/VIDEO_BACKEND_CONFIG et du
+backend de rendu, pas du modèle.
 """
 
 from content_creator.config.config import VIDEO_BACKEND_CONFIG
 
 
-LTX_PROMPT_GUIDE = """\
-# SKILL — Video engine prompting (LTX-2)
-
-CONTEXT: we produce SHORT and VERTICAL content (9:16) for SOCIAL MEDIA
-(TikTok, Instagram Reels, Facebook, Shorts): catchy, dynamic, readable on mobile.
-
-MOOD: the video's mood/tone must SHOW THROUGH in EVERY video prompt — via the
-light, the palette, the pacing, the camera energy and the subject's attitude. The mood prevails.
-
-LANGUAGE (mandatory): ALWAYS write the video prompts (e.g. `shot_description`, and any
-movement/camera description you send to the engine) in ENGLISH — LTX responds best to English.
-This is independent of the narration language: the SPOKEN text (`text` in add_talking_clip,
-`narration_text` in add_broll_clip/add_media_clip) stays in the video's language (e.g. French)
-and must NOT be translated. Only the visual prompt is in English.
-
-When you write a video prompt (e.g. `shot_description`), apply the LTX method:
-
-STRUCTURE — a single flowing paragraph, in the PRESENT tense, CHRONOLOGICAL (start → end):
-1. Shot: cinema term + scale (close-up, medium, wide, low angle, over-the-shoulder, tracking…).
-2. Scene: light, color palette, textures, atmosphere (golden hour, neon, mist, grain…).
-3. Action: a natural sequence that flows from start to end.
-4. Subject: age, hair, clothing, distinctive details; emotions through GESTURES / POSTURE / FACE
-   (never an abstract label like "sad" or "tense").
-5. Camera: when and how it moves (slow dolly in, handheld tracking, pan left, static…)
-   + what the shot looks like AFTER the movement.
-6. Audio (if relevant): ambience, music; dialogue in quotes with language/accent.
-
-RULES:
-- ONE subject, ONE main action, ONE camera behavior. ONE SINGLE continuous shot (no multi-scenes).
-- Chronological, verbs in the PRESENT tense, 4–8 sentences, < 200 words.
-- Match the level of detail to the scale (close-up = more detail than a wide shot).
-- Describe the camera ↔ subject RELATIONSHIP for movements.
-- Write the video prompt in ENGLISH (LTX responds best to it), even if the narration is in French.
-
-TO AVOID (otherwise artifacts):
-- Abstract emotional labels → show the emotion through posture, gestures, face.
-- Readable text or logos (unreliable).
-- Chaotic physics (jumps, juggling); dancing works well.
-- Overload (too many subjects / actions / objects) → it dilutes the result.
-- Contradictory lighting (e.g. warm sunset + cold neon) unless clearly intended.
-
-USEFUL VOCABULARY (draw from it to stay concrete):
-- Camera: follows, tracks, pans across, circles around, tilts up, push in / pull back, overhead,
-  handheld, over-the-shoulder, wide establishing shot, static frame, slow dolly in.
-- Scale / pacing: intimate, epic, claustrophobic; slow motion, time-lapse, lingering shot,
-  continuous shot, seamless transition, sudden stop.
-- Light: natural sunlight, golden hour, neon glow, flickering candles, dramatic shadows, rim / backlight.
-- Atmosphere / texture: fog, rain, dust, smoke, particles; rough stone, smooth metal, worn fabric, glossy.
-- Palette: vibrant, muted, monochromatic, high contrast.
-- Style (name it EARLY): documentary, film noir, thriller, modern romance, fashion editorial,
-  painterly, cyberpunk, 2D/3D animation, claymation.
-- VFX: motion blur, depth of field, lens flares, film grain, particle systems.
-
-EXAMPLE (b-roll prompt in the target format, in English):
-"Cinematic medium shot, golden-hour light raking across an empty football stadium. The camera slowly
-pushes in past the touchline as the man from Image 1, in a dark suit, walks toward the pitch, hands in
-pockets, gaze fixed ahead. Warm rim light catches his shoulders; dust motes drift in the air. The crowd
-stands blurred and quiet in the background. Calm, contemplative atmosphere, shallow depth of field."
-
-DIALOGUE (if the shot speaks): put the text in quotes, specify language/accent, and break it into
-short lines with an acting cue (gesture, pause, glance) between each.
-"""
 
 
 # Tools qui déclenchent l'injection du LIPDUB_GUIDE (doublage vidéo→vidéo, IC-LoRA).
@@ -203,29 +141,31 @@ subtitles, action readable at small size. Keep shots SHORT (2–10 s) and the pa
 
 
 def build_prompt_guide(tool_names=None, video_model=None) -> str:
-    """Assemble le guide de prompting ADAPTÉ AU MODÈLE de génération, AU BACKEND et aux TOOLS.
+    """Assemble le guide injecté dans le system prompt : PROMPTING (par modèle) + FORMAT
+    (par backend) + politiques de TOOLS (agnostiques).
 
-    - Modèle avec skill dédié (cf. model_prompting, ex. MiniMax H3) : on INJECTE le guide de
-      prompting propre au moteur (piochée dans model_skills/<model>/) À LA PLACE du guide LTX,
-      + un rappel de format réseaux sociaux générique.
-    - Sinon, moteur LTX/Wan (défaut) : guide LTX classique + specs de format LTX ; en LTX local
-      (i2v) on ajoute la section i2v (mouvement/caméra, pas la scène).
+    - PROMPTING : piochée SELON LE MODÈLE `video_generator` dans model_skills/<model>/ (cf.
+      model_prompting.load_prompting_guide). Modèle sans skill dédié -> prompting par défaut
+      (`ltx`, grammaire cinématographique générique valable aussi Wan). Inclut le CATALOGUE de
+      styles si le modèle en a (le master en choisit un et le charge via `load_style_skill`).
+    - FORMAT (dépend du BACKEND, pas du modèle) : en rendu LTX local (i2v), specs LTX (résolution/
+      fps depuis .env) + section i2v (mouvement/caméra, pas la scène) ; sinon rappel 9:16 social générique.
     - LipDub / lip-sync : politiques AGNOSTIQUES au moteur, ajoutées selon les TOOLS du skill.
 
     `tool_names` = liste des tools du skill (None => tous les tools enregistrés).
     `video_model` = ModelConfig du rôle video_generator (aiguille le skill de prompting du moteur)."""
     c = VIDEO_BACKEND_CONFIG
-    # Skill de prompting SPÉCIFIQUE AU MODÈLE (si le video_generator en apporte un).
-    from content_creator.agentic.model_prompting import load_engine_prompt_guide
-    engine_guide = load_engine_prompt_guide(video_model)
-    if engine_guide is not None:
-        parts = [engine_guide, _SOCIAL_FORMAT_NOTE]
+    is_ltx_render = c["use_ltx_broll"] or c["use_ltx_lipsync"]
+    # 1) PROMPTING — piochée selon le modèle (défaut = ltx). Toujours non vide.
+    from content_creator.agentic.model_prompting import load_prompting_guide
+    parts = [load_prompting_guide(video_model)]
+    # 2) FORMAT — selon le BACKEND de rendu. LTX local : specs LTX (+ régime i2v) ; sinon générique.
+    if is_ltx_render:
+        parts += [_format_specs(), _LTX_I2V_GUIDE]
     else:
-        parts = [LTX_PROMPT_GUIDE, _format_specs()]
-        if c["use_ltx_broll"] or c["use_ltx_lipsync"]:
-            parts.append(_LTX_I2V_GUIDE)
-    # tool_names=None => créateur libre (accès à TOUS les tools) : on résout la liste
-    # réelle des tools enregistrés pour décider des sections conditionnelles.
+        parts.append(_SOCIAL_FORMAT_NOTE)
+    # 3) POLITIQUES DE TOOLS (agnostiques). tool_names=None => créateur libre (TOUS les tools) :
+    # on résout la liste réelle des tools enregistrés pour décider des sections conditionnelles.
     from content_creator.agentic.video_tools import TOOLS
     available = set(tool_names) if tool_names is not None else set(TOOLS)
     # Politique lip-sync : dès que le skill peut faire parler un avatar à l'écran.

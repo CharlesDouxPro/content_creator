@@ -38,9 +38,9 @@ from content_creator.pipelines.processed import is_processed, mark_processed
 TOOLS = {}
 
 # Tools EXCLUS de l'exposition « tous les tools » (skill.tool_names = None => créateur libre) :
-# ils ne sont pertinents que dans un contexte précis (ex. load_h3_style seulement si le
-# video_generator est un modèle MiniMax H3). run_agent les ajoute EXPLICITEMENT le cas échéant.
-HIDDEN_TOOLS = {"load_h3_style"}
+# ils ne sont pertinents que dans un contexte précis (ex. load_style_skill seulement si le
+# video_generator est un modèle avec des skills de style). run_agent les ajoute EXPLICITEMENT le cas échéant.
+HIDDEN_TOOLS = {"load_style_skill"}
 
 
 def tool(schema: dict):
@@ -446,24 +446,25 @@ def write_script(session: VideoSession, style: str = "") -> dict:
 
 
 # ========================
-# TOOLS — skill de STYLE (spécifique modèle, ex. MiniMax H3)
+# TOOLS — skill de STYLE (spécifique au modèle de génération, ex. MiniMax H3)
 # ========================
 @tool({
-    "name": "load_h3_style",
-    "description": "Loads the FULL guide of ONE H3 style skill that YOU chose from the catalog in "
-                   "your instructions (e.g. 'minimalist-product-ad-generator', '3d-animation-short-"
-                   "generator'). Use it ONCE, BEFORE planning shots, when the brief clearly matches a "
-                   "style: the returned guide gives you the visual language, camera and structure to "
-                   "follow when writing your video prompts. Only available when generating with MiniMax H3.",
+    "name": "load_style_skill",
+    "description": "Loads the FULL guide of ONE style skill that YOU chose from the STYLE SKILLS "
+                   "catalog in your instructions (e.g. 'minimalist-product-ad-generator', '3d-"
+                   "animation-short-generator'). Use it ONCE, BEFORE planning shots, when the brief "
+                   "clearly matches a style: the returned guide gives you the visual language, camera "
+                   "and structure to follow when writing your video prompts. Only available when the "
+                   "generation model ships style skills.",
     "parameters": {"type": "object", "properties": {
         "name": {"type": "string", "description": "Exact `name` of the style skill from the catalog."},
     }, "required": ["name"]},
 })
-def load_h3_style(session: VideoSession, name: str) -> dict:
-    from content_creator.agentic.model_prompting import load_style_skill
+def load_style_skill(session: VideoSession, name: str) -> dict:
+    from content_creator.agentic.model_prompting import load_style_skill as _load_style
     video_model = (session.models or {}).get("video_generator")
     try:
-        guide = load_style_skill(video_model, name)
+        guide = _load_style(video_model, name)
     except KeyError as e:
         return {"status": "error", "error": str(e)}
     return {"status": "ok", "skill": name, "guide": guide,

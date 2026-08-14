@@ -145,8 +145,8 @@ def run_agent(content: str = None, skill_name: str = "avatar_story",
     # de chargement à la demande (masqué par défaut) pour que le master pioche lui-même son style.
     if list_style_skills(video_model):
         names = {t["function"]["name"] for t in tools}
-        if "load_h3_style" not in names:
-            tools = tools + openai_tool_schemas(["load_h3_style"])
+        if "load_style_skill" not in names:
+            tools = tools + openai_tool_schemas(["load_style_skill"])
     # skill (réalisation) + compétence de prompting du moteur vidéo, PIOCHÉE SELON LE MODÈLE
     # câblé sur `video_generator` (ex. skill H3 dédié) et, à défaut, LTX adapté au backend actif.
     system = skill.system_prompt + "\n\n" + build_prompt_guide(
