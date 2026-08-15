@@ -335,6 +335,57 @@ def add_media_clip(session: VideoSession, source: str, narration_text: str = Non
 
 
 # ========================
+# TOOL — génération vidéo DIRECTE (rend et renvoie le fichier tout de suite)
+# ========================
+@tool({
+    "name": "generate_video",
+    "description": "Generate a short video clip from a text prompt (and optionally a first-frame "
+                   "image for image-to-video) using the channel's video engine (e.g. LTX-2.5). "
+                   "UNLIKE add_broll_clip, this renders IMMEDIATELY and RETURNS the local path to "
+                   "the .mp4 — use it when you just want a video from a prompt. Write the prompt in "
+                   "English, cinematic and detailed.",
+    "parameters": {"type": "object", "properties": {
+        "prompt": {"type": "string", "description": "What the video shows (English, cinematic, detailed)."},
+        "reference_image": {"type": "string", "description": "Optional URL (publicly reachable by the "
+                            "video server) of a first-frame image for image-to-video."},
+        "seconds": {"type": "integer", "description": "Clip duration in seconds (4-15). Default 5."},
+    }, "required": ["prompt"]},
+})
+def generate_video(session: VideoSession, prompt: str, reference_image: str = None,
+                   seconds: int = 5) -> dict:
+    """Rend un clip via le moteur vidéo du channel (LTX-2.5 / H3, endpoint /v1/videos) et renvoie
+    le chemin du MP4. base_url/token = provider du rôle video_generator (sinon env LTX25_URL)."""
+    from content_creator.agentic import sglang_video_client
+
+    mc = (session.models or {}).get("video_generator") or {}
+    provider = mc.get("provider") or {}
+    base_url = provider.get("base_url") or os.environ.get("LTX25_URL")
+    if not base_url:
+        return {"status": "error", "error": "no video engine configured (set the video_generator "
+                "provider on the channel, or export LTX25_URL)"}
+
+    idx = session.clip_no
+    session.clip_no += 1
+    dest = os.path.join(session.output_dir, f"video_{idx + 1}.mp4")
+    dur = max(4, min(15, int(seconds or 5)))
+    conditions, task = [], "t2va"
+    if reference_image:
+        task = "fl2va"
+        conditions = [{"type": "image", "uri": reference_image, "role": "keyframe", "frame_index": 0}]
+    payload = {
+        "model": mc.get("model_name") or "Lightricks/LTX-2.5",
+        "prompt": prompt,
+        "seconds": dur,
+        "task": task,
+        "conditions": conditions,
+        "target": {"short_edge": 768, "aspect_ratio": "9:16", "duration_seconds": float(dur)},
+        "seed": SEED_BASE + idx,
+    }
+    path = sglang_video_client.generate(base_url, provider.get("token") or "", payload, dest)
+    return {"status": "ok", "video": path, "seconds": dur}
+
+
+# ========================
 # TOOLS — acquisition de contenu (scraping)
 # ========================
 def _article_to_text(article) -> str:
