@@ -20,7 +20,7 @@ from openai import OpenAI
 from content_creator.config.config import API_KEYS, VIDEO_BACKEND_CONFIG
 from content_creator.pipelines.modules import GCSManager, ArticleSummarizer
 from content_creator.agentic import ltx_client, sglang_video_client
-from content_creator.agentic.model_prompting import uses_sglang_video
+from content_creator.agentic.model_prompting import resolve_model_skill, uses_sglang_video
 
 # ========================
 # CONFIG
@@ -36,6 +36,10 @@ FLUX_T2I_MODEL = os.getenv("FLUX_T2I_MODEL", "black-forest-labs/FLUX-1-schnell")
 OUT_W, OUT_H, FPS = 720, 1280, 30
 RESOLUTION = "720P"
 RATIO = "9:16"
+
+# short_edge imposé par certains modèles SGLang (clé = resolve_model_skill). MiniMax-H3
+# n'accepte que 768 ; les autres retombent sur OUT_W (720).
+SGLANG_SHORT_EDGE = {"minimax_h3": 768}
 NEGATIVE_PROMPT = "low resolution, error, worst quality, distorted face, extra fingers"
 SEED_BASE = 12345
 OUTPUT_DIR = "output/story_hybrid"
@@ -755,13 +759,16 @@ def _sglang_broll(prompt: str, duration: int, seed: int, ref_url: str, dest: str
     if ref_url:
         task = "fl2va"                             # l'image = 1re frame effective du clip (i2v)
         conditions = [{"type": "image", "uri": ref_url, "role": "keyframe", "frame_index": 0}]
+    # short_edge imposé par le modèle (MiniMax-H3 exige 768) ; défaut = OUT_W. Le clip est de
+    # toute façon renormalisé en 720x1280 en aval (reframe_vertical).
+    short_edge = SGLANG_SHORT_EDGE.get(resolve_model_skill(model_config), OUT_W)
     payload = {
         "model": model_config["model_name"],
         "prompt": prompt,
         "seconds": int(round(dur)),
         "task": task,
         "conditions": conditions,
-        "target": {"short_edge": OUT_W, "aspect_ratio": RATIO, "duration_seconds": dur},
+        "target": {"short_edge": short_edge, "aspect_ratio": RATIO, "duration_seconds": dur},
         "num_outputs_per_prompt": 1,
         "num_inference_steps": int(p.pop("num_inference_steps", 50)),
         "flow_shift": float(p.pop("flow_shift", 12.0)),

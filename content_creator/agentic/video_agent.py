@@ -23,7 +23,11 @@ from content_creator.agentic.video_tools import (
     VideoSession, openai_tool_schemas, dispatch, cleanup_fetched_images,
 )
 from content_creator.agentic.video_skills import get_skill
-from content_creator.agentic.model_prompting import list_style_skills
+from content_creator.agentic.model_prompting import (
+    DEFAULT_MODEL_KEY,
+    list_style_skills,
+    resolve_model_skill,
+)
 from content_creator.agentic.ltx_prompting import build_prompt_guide
 from content_creator.agentic.trace import Tracer
 
@@ -151,6 +155,16 @@ def run_agent(content: str = None, skill_name: str = "avatar_story",
     # câblé sur `video_generator` (ex. skill H3 dédié) et, à défaut, LTX adapté au backend actif.
     system = skill.system_prompt + "\n\n" + build_prompt_guide(
         skill.tool_names, video_model=video_model)
+    # Visibilité : quel skill de canal + quel skill de prompting moteur (selon le model_name du
+    # video_generator) + styles exposés. resolve_model_skill(None ou modèle sans skill) -> 'ltx' (défaut).
+    _vg_name = (video_model or {}).get("model_name") or "—"
+    _mk = resolve_model_skill(video_model) or f"{DEFAULT_MODEL_KEY} (défaut)"
+    _styles = [s["name"] for s in list_style_skills(video_model)]
+    print(
+        f"[{label}] 🎬 skill canal='{skill_name}' · moteur='{_vg_name}' → prompting '{_mk}'"
+        + (f" · styles dispo: {', '.join(_styles)}" if _styles else ""),
+        flush=True,
+    )
     if mood:   # le mood pilote les CHOIX DE RÉALISATION du master (sinon: réalisation classique)
         system += (
             f"\n\n## MOOD (high priority)\n"

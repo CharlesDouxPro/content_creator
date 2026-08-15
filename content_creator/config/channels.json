@@ -13,11 +13,11 @@
       },
       "lip_sync": {
         "model_name": "PrunaAI/p-video-avatar",
-        "provider_id": "charles_deepinfra"
+        "provider_id": "arlq_deepinfra"
       },
       "video_generator": {
-        "model_name": "Wan-AI/Wan2.7-R2V",
-        "provider_id": "charles_deepinfra"
+        "model_name": "MiniMaxAI/MiniMax-H3",
+        "provider_id": "h3_local"
       },
       "voice_generator": {
         "model_name": "nPczCjzI2devNBz1zQrb",
