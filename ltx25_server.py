@@ -60,6 +60,10 @@ os.makedirs(JOBS_DIR, exist_ok=True)
 print("==> Chargement du pipeline LTX-2.5 (distilled)…", flush=True)
 from ltx_pipelines.distilled import DistilledPipeline           # noqa: E402
 from ltx_pipelines.utils.model_paths import ModelPaths          # noqa: E402
+from ltx_pipelines.utils.media_io import encode_video           # noqa: E402
+from ltx_pipelines.utils.args import ImageConditioningInput     # noqa: E402
+from ltx_pipelines.utils.types import DEFAULT_AUTO_DURATION     # noqa: E402
+from ltx_core.model.video_vae import get_video_chunks_number    # noqa: E402
 
 # On imprime les signatures réelles (elles varient selon la version installée) pour
 # diagnostiquer sans deviner.
@@ -168,46 +172,53 @@ def _localize(uri: str) -> str | None:
     return uri                                    # chemin local nu
 
 
-def _images_from(conditions: list) -> list | None:
-    """conditions [{type:image, uri, frame_index, strength}] -> [(path, frame_idx, strength)]."""
+def _images_from(conditions: list) -> list:
+    """conditions [{type:image, uri, frame_index, strength}] -> [ImageConditioningInput].
+    Vide = text-to-video (t2va). Un élément à frame_idx 0 = image-to-video (fl2va)."""
     out = []
     for c in conditions or []:
         if c.get("type") != "image":
             continue
         path = _localize(c.get("uri", ""))
         if path:
-            out.append((path, int(c.get("frame_index", 0)), float(c.get("strength", 1.0))))
-    return out or None
+            out.append(ImageConditioningInput(
+                path=path,
+                frame_idx=int(c.get("frame_index", 0)),
+                strength=float(c.get("strength", 1.0)),
+            ))
+    return out
 
 
 def _generate(req: VideoRequest, dest: str) -> None:
-    """Appelle le pipeline LTX-2.5 et écrit `dest` (MP4 vidéo+audio). Ne passe que les kwargs
-    réellement acceptés par __call__ (robuste aux variations de signature)."""
-    kwargs: dict = {"prompt": req.prompt, "seed": req.seed}
-
-    def maybe(key, value):
-        if value is not None and key in _CALL_PARAMS:
-            kwargs[key] = value
+    """Appelle le pipeline LTX-2.5 (distilled) et encode le MP4 vidéo+audio, comme le CLI
+    `ltx_pipelines.distilled`. `__call__` -> (video, audio, num_frames, tiling_config)."""
+    w, h = _wh_from_target(req.target)
+    if not w or not h:
+        w, h = 768, 1376                       # portrait 9:16 par défaut (multiples de 32)
 
     secs = req.seconds or (req.target or {}).get("duration_seconds")
-    maybe("num_frames", _round_frames(float(secs)) if secs else None)
-    maybe("images", _images_from(req.conditions))
-    w, h = _wh_from_target(req.target)
-    maybe("width", w)
-    maybe("height", h)
-    maybe("frame_rate", float(FPS))
+    # num_frames explicite (frames % 8 == 1) si une durée est fournie, sinon la duration-head décide.
+    num_frames = _round_frames(float(secs)) if secs else DEFAULT_AUTO_DURATION
 
-    if "output_path" in _CALL_PARAMS:
-        kwargs["output_path"] = dest
-        PIPE(**kwargs)
-    else:
-        raise RuntimeError(
-            "DistilledPipeline.__call__ n'expose pas `output_path` ; signature = "
-            f"{sorted(_CALL_PARAMS)}. Envoie-moi cette signature (et "
-            "`python -m ltx_pipelines.distilled --help`) pour finaliser l'encodage MP4."
-        )
+    video, audio, nframes, tiling = PIPE(
+        prompt=req.prompt,
+        seed=req.seed,
+        height=h,
+        width=w,
+        frame_rate=float(FPS),
+        images=_images_from(req.conditions),
+        num_frames=num_frames,
+    )
+    encode_video(
+        video=video,
+        fps=int(FPS),
+        audio=audio,
+        output_path=dest,
+        video_chunks_number=get_video_chunks_number(nframes, tiling),
+        color_space=None,
+    )
     if not os.path.exists(dest):
-        raise RuntimeError("génération terminée mais aucun fichier de sortie produit")
+        raise RuntimeError("encode_video n'a produit aucun fichier de sortie")
 
 
 def _run(job_id: str, req: VideoRequest) -> None:
