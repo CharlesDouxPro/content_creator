@@ -1,5 +1,8 @@
 # chmod +x start_server.sh
-# ./start_server.sh
+# ./start_server.sh 
+
+#  or  directly bash start_server.sh
+
 
 apt install nvitop
 apt install python3
