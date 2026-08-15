@@ -1,3 +1,6 @@
+# chmod +x start_server.sh
+# ./start_server.sh
+
 apt install nvitop
 apt install python3
 apt update
