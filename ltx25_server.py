@@ -61,6 +61,11 @@ print("==> Chargement du pipeline LTX-2.5 (distilled)…", flush=True)
 from ltx_pipelines.distilled import DistilledPipeline           # noqa: E402
 from ltx_pipelines.utils.model_paths import ModelPaths          # noqa: E402
 
+# On imprime les signatures réelles (elles varient selon la version installée) pour
+# diagnostiquer sans deviner.
+print(f"==> DistilledPipeline.__init__{inspect.signature(DistilledPipeline.__init__)}", flush=True)
+print(f"==> ModelPaths.from_split{inspect.signature(ModelPaths.from_split)}", flush=True)
+
 _model_paths = ModelPaths.from_split(
     transformer_path=TRANSFORMER,
     text_encoder_path=TEXT_ENCODER,
@@ -68,7 +73,34 @@ _model_paths = ModelPaths.from_split(
     audio_vae_path=AUDIO_VAE,
     duration_head_path=DURATION_HEAD,
 )
-PIPE = DistilledPipeline(model_paths=_model_paths, spatial_upsampler_path=SPATIAL_UPSAMPLER)
+
+
+def _fill_required(func, provided: dict, known_defaults: dict) -> dict:
+    """Complète `provided` avec des valeurs pour les args REQUIS (sans défaut) de `func`
+    non encore fournis : valeur connue si dispo (ex. loras=[]), sinon None + warning."""
+    out = dict(provided)
+    for name, p in inspect.signature(func).parameters.items():
+        if name == "self" or name in out:
+            continue
+        if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
+            continue
+        if p.default is inspect.Parameter.empty:
+            if name in known_defaults:
+                out[name] = known_defaults[name]
+            else:
+                print(f"[WARN] arg requis inconnu de {func.__qualname__}: '{name}' -> None "
+                      "(signale-moi la signature imprimée ci-dessus)", flush=True)
+                out[name] = None
+    return out
+
+
+# `loras` est requis dans la version installée (la doc l'omet) : [] = pas de LoRA (transformer distilled).
+_init_kwargs = _fill_required(
+    DistilledPipeline.__init__,
+    {"model_paths": _model_paths, "spatial_upsampler_path": SPATIAL_UPSAMPLER},
+    known_defaults={"loras": []},
+)
+PIPE = DistilledPipeline(**_init_kwargs)
 _CALL_PARAMS = set(inspect.signature(PIPE.__call__).parameters)
 print(f"==> Pipeline prêt. __call__ accepte: {sorted(_CALL_PARAMS)}", flush=True)
 
