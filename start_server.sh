@@ -2,6 +2,7 @@
 # ./start_server.sh 
 
 #  or  directly bash start_server.sh
+# ssh-keygen -R 51.159.118.245
 
 
 apt install nvitop
