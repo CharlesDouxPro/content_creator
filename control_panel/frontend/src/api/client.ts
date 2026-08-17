@@ -44,6 +44,10 @@ export const api = {
     req<Channel>(`/api/channels/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(c) }),
   deleteChannel: (name: string) =>
     req<void>(`/api/channels/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  // Améliore le brief via le master_mind, calibré sur le moteur vidéo du channel. Renvoie le prompt
+  // amélioré (n'écrit rien : le front l'injecte dans le champ, l'utilisateur sauvegarde ensuite).
+  enhancePrompt: (c: Channel) =>
+    req<{ prompt: string }>('/api/channels/enhance-prompt', { method: 'POST', body: JSON.stringify(c) }),
 
   // Personnages
   library: () => req<CharacterAsset[]>('/api/characters/library'),

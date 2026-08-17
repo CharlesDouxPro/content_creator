@@ -3,13 +3,13 @@ providers.py — CRUD des providers d'inférence (base_url + api_key), NOMMÉS.
 
 Définis/nommés/renseignés ici (une seule fois), stockés durablement (GCS), et
 référencés par les channels via `provider_id`. La clé n'est JAMAIS renvoyée en clair
-(pattern `api_key_set: bool`). Source de vérité : inference_engine.providers.
+(pattern `api_key_set: bool`). Source de vérité : content_creator.config.providers.
 """
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from inference_engine.providers import (
+from content_creator.config.providers import (
     delete_provider,
     load_providers,
     upsert_provider,

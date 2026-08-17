@@ -15,7 +15,7 @@ attendues en aval — sans qu'aucun consommateur ne change :
 Rappel structure d'un channel (cf. schema.Channel) :
   - name    : identifiant (log, dédup, dossier de sortie).
   - skill   : type de vidéo (fichier skills/<skill>.md).
-  - models  : pool de modèles par rôle (master_mind / slm / lip_sync / video_generator /
+  - models  : pool de modèles par rôle (master_mind / slm / video_avatar / video_generator /
               voice_generator), chacun {model_name, provider_id}. Le token est injecté à la
               résolution depuis PROVIDERS (jamais stocké dans le JSON).
   - context : brief (prompt / ressources / mood / characters).

@@ -11,21 +11,25 @@
         "model_name": "anthropic/claude-opus-4-8",
         "provider_id": "arlq_deepinfra"
       },
-      "lip_sync": {
+      "video_avatar": {
         "model_name": "PrunaAI/p-video-avatar",
-        "provider_id": "arlq_deepinfra"
+        "provider_id": "charles_deepinfra"
       },
       "video_generator": {
-        "model_name": "MiniMaxAI/MiniMax-H3",
-        "provider_id": "h3_local"
+        "model_name": "Wan-AI/Wan2.6-T2V",
+        "provider_id": "charles_deepinfra"
       },
       "voice_generator": {
-        "model_name": "nPczCjzI2devNBz1zQrb",
+        "model_name": "JdwJ7jL68CWmQZuo7KgG",
         "provider_id": "elevenlabs"
+      },
+      "image_generator": {
+        "model_name": "stabilityai/sd3.5",
+        "provider_id": "charles_deepinfra"
       }
     },
     "context": {
-      "prompt": "Crée une vidéo TikTok verticale à partir du premier article foot non traité : accroche forte, narration rythmée, alternance face caméra et b-roll, conclusion qui donne envie de réagir. Raconte l'actualité de manière dynamique",
+      "prompt": "Vidéo TikTok verticale 9:16 pensée mobile : format podcast foot traité comme un SCOOP URGENT, jamais un résumé mou. Durée ~2 min. UN SEUL présentateur porte tout : Presenter 1, homme barbu, casque sur les oreilles, chemise bleue à col, animateur passionné qui lance, pousse et incarne l'info avec l'énergie et l'autorité d'un journaliste sport qui balance une exclu. Il parle SEUL face caméra — on ne montre JAMAIS deux bouches en même temps, Presenter 2 n'apparaît pas. Décor : studio pro, mousses acoustiques sombres, bibliothèque en fond, micro et interface audio dans le cadre. Lumière nette et contrastée qui sculpte le visage en tons chauds sur décor gris-bleu froid ; cadrage serré, sujet centré haut, marge basse pour sous-titres, légère profondeur de champ, texture réaliste et moderne, palette premium et sobre (gris, bleus, accents chauds maîtrisés). Ambiance stade/urbaine discrète qui soutient le rythme sans couvrir la voix.\n\nArc clair : accroche choc de 2-3 s (présentateur penché vers le micro, sourcils levés, main qui ponctue, il lâche l'info sous forme de question ou d'affirmation qui coupe le souffle et stoppe le scroll) → mise en contexte rapide → cœur de l'info avec LE détail qui fait réagir → montée d'intensité où il argumente, nuance, s'échauffe, sourit → punch final ouvert qui appelle le commentaire (\"t'en penses quoi ?\"). RÈGLE ABSOLUE de lip-sync : chaque passage où le présentateur parle à l'écran est un talking-clip lip-sync soigné, jamais de bouche désynchronisée ; varie les valeurs de plan sur lui (gros plan visage tendu vers le micro, plan poitrine avec micro et casque, léger changement d'angle) pour rythmer sans casser la cohérence du décor et de la lumière. La voix off (b-roll sans visage qui parle) est réservée à des plans d'illustration cinématiques et courts, décrits en anglais photoréaliste, un seul sujet et une seule action par plan, faible profondeur de champ et tons chauds contrôlés : pelouse rasante en golden hour avec un ballon qui roule, joueurs flous en arrière-plan, projecteurs de stade qui s'allument un à un, gradins qui vibrent au ralenti, poussière et particules dans un contre-jour chaud. Énergie haute, montage vif, coupes franches, plans courts et percutants (2-8 s), gestuelle vive et regard caméra pour l'autorité. Prompts visuels en anglais, style photoréaliste moderne ; garde le décor, la lumière et la palette parfaitement cohérents d'un plan à l'autre",
       "ressources": {
         "urls": [
           "https://www.20minutes.fr/sport/football/"
@@ -33,12 +37,12 @@
         "local_paths": [],
         "audio_paths": []
       },
-      "mood": "",
+      "mood": "Résumé de l'événement plus débat, video environ 2 minutes",
       "characters": {
-        "presenter": {
-          "image": "avatars/avatar_femme_foot.png",
-          "voice": "EXAVITQu4vr4xnSDxMaL",
-          "description": "présentatrice mature, costume, posture assurée"
+        "presenter 1": {
+          "voice": "JdwJ7jL68CWmQZuo7KgG",
+          "description": "The video captures a man actively hosting a podcast or making a video recording. The overall mood is engaging and informative, with a bright and clear visual style. The setting is an indoor studio or home office, characterized by dark acoustic foam panels on the walls and a bookshelf filled with books in the background, suggesting a professional and intellectual environment. The activity level is dynamic, with the subject speaking animatedly and using hand gestures to emphasize points. The visual aesthetic is realistic and modern, with good lighting highlighting the subject's face. The emotional tone is enthusiastic and friendly. The main subject is a man with a beard, wearing headphones and a blue collared shirt, speaking into a professional microphone. Other elements include a sound mixer or audio interface on the right side of the frame. The artistic style is photorealistic, and the color characteristics feature warm tones for the subject's skin and the books, contrasting with the cool, dark tones of the background and the blue shirt. The color palette is dominated by dark grays and blues, with accents of brown and muted colors from the books.",
+          "avatar_prompt": "The video captures a man actively hosting a podcast or making a video recording. The overall mood is engaging and informative, with a bright and clear visual style. The setting is an indoor studio or home office, characterized by dark acoustic foam panels on the walls and a bookshelf filled with books in the background, suggesting a professional and intellectual environment. The activity level is dynamic, with the subject speaking animatedly and using hand gestures to emphasize points. The visual aesthetic is realistic and modern, with good lighting highlighting the subject's face. The emotional tone is enthusiastic and friendly. The main subject is a man with a beard, wearing headphones and a blue collared shirt, speaking into a professional microphone. Other elements include a sound mixer or audio interface on the right side of the frame. The artistic style is photorealistic, and the color characteristics feature warm tones for the subject's skin and the books, contrasting with the cool, dark tones of the background and the blue shirt. The color palette is dominated by dark grays and blues, with accents of brown and muted colors from the books."
         }
       }
     }
@@ -55,17 +59,21 @@
         "model_name": "anthropic/claude-opus-4-8",
         "provider_id": "arlq_deepinfra"
       },
-      "lip_sync": {
+      "video_avatar": {
         "model_name": "PrunaAI/p-video-avatar",
         "provider_id": "charles_deepinfra"
       },
       "video_generator": {
-        "model_name": "Wan-AI/Wan2.2-T2V-A14B",
+        "model_name": "Wan-AI/Wan2.6-T2V",
         "provider_id": "charles_deepinfra"
       },
       "voice_generator": {
         "model_name": "nPczCjzI2devNBz1zQrb",
         "provider_id": "elevenlabs"
+      },
+      "image_generator": {
+        "model_name": "stabilityai/sd3.5",
+        "provider_id": "charles_deepinfra"
       }
     },
     "context": {
@@ -88,6 +96,95 @@
         "macron": {
           "voice": "JBFqnCBsd6RMkjVDRZzb",
           "description": "petit poney bleu-blanc-rouge, ton posé et un peu pédant"
+        }
+      }
+    }
+  },
+  {
+    "name": "Space",
+    "skill": "free_creator",
+    "models": {
+      "master_mind": {
+        "model_name": "anthropic/claude-opus-4-8",
+        "provider_id": "arlq_deepinfra"
+      },
+      "slm": {
+        "model_name": "anthropic/claude-opus-4-8",
+        "provider_id": "arlq_deepinfra"
+      },
+      "video_avatar": {
+        "model_name": "PrunaAI/p-video-avatar",
+        "provider_id": "charles_deepinfra"
+      },
+      "video_generator": {
+        "model_name": "Wan-AI/Wan2.6-T2V",
+        "provider_id": "charles_deepinfra"
+      },
+      "voice_generator": {
+        "model_name": "Qrl71rx6Yg8RvyPYRGCQ",
+        "provider_id": "elevenlabs"
+      },
+      "image_generator": {
+        "model_name": "stabilityai/sd3.5",
+        "provider_id": "charles_deepinfra"
+      }
+    },
+    "context": {
+      "prompt": "Un format court et vertical de vulgarisation spatiale, porté par la voix de \"narator\", qui explique UN seul concept scientifique frappant sur l'espace — par exemple : « Pourquoi une cuillère de trou noir pèserait plus que l'Everest ? » ou « Combien de temps met la lumière du Soleil pour t'atteindre ? ». Choisis un angle contre-intuitif qui déclenche un « quoi ?! » dès la première seconde. Ouvre sur un HOOK punchy dit par narator (question vertigineuse ou fait choc), enchaîne sur une explication limpide en 2-3 étapes, puis termine sur un plan de bascule qui remet l'échelle en perspective, avec une phrase de clôture qui invite à réagir/commenter (« et toi, tu savais ça ? »).\n\nAlterne des séquences b-roll spatiales spectaculaires (voix off de narator quand il n'est pas à l'écran) et, si narator apparaît face caméra, des plans lip-sync propres pour ancrer la présence humaine. Ton : émerveillement documentaire, curieux et accessible, énergie montante, rythme nerveux avec des plans courts. Identité visuelle : cosmos profond et cinématographique — noirs veloutés, bleus profonds, éclats stellaires, lueurs orangées de nébuleuses, contraste élevé et grain filmique léger. Côté rendu, mise sur ce que le moteur gère bien : lents travellings avant vers une planète, caméra qui dérive dans un champ d'étoiles, orbite douce autour d'une lune, pluie de particules et poussière cosmique, profondeur de champ marquée. Un seul sujet et un seul mouvement de caméra par plan, transitions fluides d'un plan à l'autre. Évite le texte à l'écran, les foules et la physique chaotique. Garde chaque plan court (2–6 s) et cadré vertical 9:16, sujet centré haut avec marge basse pour les sous-titres.",
+      "ressources": {
+        "urls": [],
+        "local_paths": [],
+        "audio_paths": []
+      },
+      "mood": "scientifique",
+      "characters": {}
+    }
+  },
+  {
+    "name": "Presentation",
+    "skill": "avatar_story",
+    "models": {
+      "master_mind": {
+        "model_name": "anthropic/claude-opus-4-8",
+        "provider_id": "arlq_deepinfra"
+      },
+      "slm": {
+        "model_name": "anthropic/claude-opus-4-8",
+        "provider_id": "arlq_deepinfra"
+      },
+      "video_avatar": {
+        "model_name": "PrunaAI/p-video-avatar",
+        "provider_id": "charles_deepinfra"
+      },
+      "video_generator": {
+        "model_name": "Wan-AI/Wan2.6-T2V",
+        "provider_id": "charles_deepinfra"
+      },
+      "voice_generator": {
+        "model_name": "b3tuFWghbXYRa9Cs9MJf",
+        "provider_id": "elevenlabs"
+      },
+      "image_generator": {
+        "model_name": "stabilityai/sd3.5",
+        "provider_id": "arlq_deepinfra"
+      }
+    },
+    "context": {
+      "prompt": "Open cold — no intro card, no music sting, no runway. Moi looks dead into the lens from his warm, lived-in home-office desk and levels with the viewer in the very first breath, in English: \"Hi Awen, I'm Charles. I can't show you my personal platform, but I can show you a result and explain how it works.\" That direct, unhurried address IS the hook — no build-up, no editing tricks, just a real person telling the truth. From there the whole piece runs as one dynamic, continuous podcast confession: first person, dry, honest, technical, no hype, little to no music. All rhythm comes from how the monologue is cut into tight lip-synced talking segments and from Moi's expressions and small honest gestures — never from effects or transitions.\n\nLet the arc unfold as one unhurried, purely technical thread — never what the system is used for, only HOW it works. First the WHAT: an autonomous pipeline that produces videos at scale on its own. Then the HOW, kept whole but plain-spoken — open-source models on an H100 at Scaleway (a ready instance in about three minutes, weights already mounted, far cheaper GPU compute); a Python API backend with a small vibe-coded front end that's just a form to fill in (drop in configs, secrets, channels and videos, then press play); an orchestrating agent that drives the run; the models executing on the Scaleway GPUs — and how these pieces talk to each other, explained simply. Save the frank quality admission for here, never the opening: these videos aren't built to be top quality, they're mass-produced for a few cents each, and the quality climbs on its own every time new open-weights models drop. Land on a quiet, direct look held in silence. Then, and only then AT THE END, deliver the honest positioning: \"I'm not proficient in TypeScript, but if you need someone for backend, AI engineering, MLOps or model orchestration — that's what I'm good for. It would be great for an interview; if you're in Paris I can come see you, or remotely. Goodbye Awen.\" Close tight on that understated final look and let the silence sit for a beat before the end.\n\nVisual identity: natural and lived-in, never cinematic show-off. Warm desk with soft, natural-feeling window light raking gently across the face, a podcast mic in frame, laptop, a few personal objects; casual clothing, relaxed posture, direct eye contact, small honest gestures — a slight lean in, an open hand, a nod — that punctuate key points but stay un-theatrical. Keep the exact same person and setting from first frame to last so it reads as one continuous intimate medium/close-up take, framed slightly high with a clean bottom margin for subtitles. Because Moi is on screen almost the entire time, EVERY face-to-camera passage MUST be a proper lip-synced talking segment — never a silent b-roll of him speaking; the spoken lines stay in English. Reserve generated b-roll strictly for the abstract technical beats as brief voice-over illustration — short punchy few-second cuts for dynamism, one clean subject each, a single slow deliberate camera move (gentle push-in or slow dolly across the object), muted-to-warm palette, shallow depth of field, then cut straight back to Moi: a GPU rack humming with soft indicator glow; model weights streaming into memory; a plain fill-in-the-form interface; an orchestrating agent driving the pipeline; the models running on the GPUs — plus one clean, minimal, uncluttered system-architecture beat showing these parts connected by simple flowing lines. Vertical 9:16, no on-screen text, no logos.",
+      "ressources": {
+        "urls": [],
+        "local_paths": [
+          "https://storage.googleapis.com/content-bucket-charles-doux/avatars/gemini-generated-image-u87gshu87gshu87g.jpeg"
+        ],
+        "audio_paths": [],
+        "notes": "This is the architecture of the system. "
+      },
+      "mood": "Calm podcast confession from someone who actually built the thing. Grounded, deliberate, zero hype. Rhythm from short segments and expressions, not from effects.",
+      "characters": {
+        "Moi": {
+          "image": "https://storage.googleapis.com/content-bucket-charles-doux/avatars/capture-decran-2026-08-15-a-19-11-16.png",
+          "voice": "b3tuFWghbXYRa9Cs9MJf",
+          "description": "podcast style, looking at the camera from his desk. "
         }
       }
     }

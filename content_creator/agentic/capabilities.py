@@ -11,6 +11,7 @@ import os
 import json
 import base64
 import subprocess
+import threading
 import urllib.parse
 from dataclasses import dataclass
 
@@ -29,12 +30,24 @@ AVATAR_LOCAL = "image.png"
 os.getenv("PRUNA_URL")
 PRUNA_URL = "https://api.deepinfra.com/v1/inference/PrunaAI/p-video-avatar"
 WAN_URL = "https://api.deepinfra.com/v1/inference/Wan-AI/Wan2.7-R2V"
-KONTEXT_MODEL = "black-forest-labs/FLUX.1-Kontext-dev"
-# Text-to-image (1re frame pour un backend Reference-to-Video type Wan quand aucune réf fournie).
-FLUX_T2I_MODEL = os.getenv("FLUX_T2I_MODEL", "black-forest-labs/FLUX-1-schnell")
+# Génération d'IMAGE — modèles surchargeables par env. Défauts NON-FLUX (Qwen sur DeepInfra),
+# car FLUX peut être inaccessible selon le compte/provider. Le PROVIDER (endpoint + token) vient
+# du rôle `image_generator` du channel (cf. _image_client) ; ces constantes ne fixent que le nom
+# du modèle utilisé sur ce provider.
+# text-to-image (1re frame, avatars) — via l'API OpenAI images.generate. sd3.5 : non-FLUX, dispo sur
+# le compte DeepInfra du rôle image. (FLUX-1-schnell/dev y marchent aussi si on préfère.)
+IMAGE_T2I_MODEL = os.getenv("IMAGE_T2I_MODEL", "stabilityai/sd3.5")
+# édition (fond cohérent avatar). Wan2.7-Image-Edit est servi par l'endpoint INFERENCE brut de
+# DeepInfra ({prompt, image_urls:[URL publique]} -> {images:[URL]}), PAS par images.edit.
+IMAGE_EDIT_MODEL = os.getenv("IMAGE_EDIT_MODEL", "Wan-AI/Wan2.7-Image-Edit")
+# Modèles d'édition à router vers l'endpoint inference (image_urls) plutôt que vers images.edit.
+INFERENCE_EDIT_PREFIXES = ("Wan-AI/",)
+# Rétro-compat : anciens noms (surchargeables par les mêmes env).
+KONTEXT_MODEL = IMAGE_EDIT_MODEL
+FLUX_T2I_MODEL = IMAGE_T2I_MODEL
 
 OUT_W, OUT_H, FPS = 720, 1280, 30
-RESOLUTION = "720P"
+RESOLUTION = "720p"  # littéral EXACT attendu par l'API Wan/DeepInfra (minuscule ; '720P' -> 422)
 RATIO = "9:16"
 
 # short_edge imposé par certains modèles SGLang (clé = resolve_model_skill). MiniMax-H3
@@ -42,6 +55,10 @@ RATIO = "9:16"
 SGLANG_SHORT_EDGE = {"minimax_h3": 768}
 NEGATIVE_PROMPT = "low resolution, error, worst quality, distorted face, extra fingers"
 SEED_BASE = 12345
+# Talking-head (Pruna/LTX) : seed FIXE et unique pour TOUS les plans face-caméra d'un run — l'avatar
+# garde le même rendu d'une vidéo à l'autre, indépendamment du nombre/ordre des segments (idx). Le
+# b-roll garde SEED_BASE + idx pour varier les plans. Surchargeable par env TALKING_SEED.
+TALKING_SEED = int(os.getenv("TALKING_SEED", str(SEED_BASE)))
 OUTPUT_DIR = "output/story_hybrid"
 
 SCENE_PORTRAIT_LOCAL = "scene_portrait.jpg"
@@ -86,14 +103,24 @@ def sh(cmd: list) -> subprocess.CompletedProcess:
     return p
 
 
+# Plafond de concurrence des inférences DeepInfra, PARTAGÉ par tous les threads du process (les
+# plans d'un run — et les runs de plusieurs channels — tapent DeepInfra en parallèle via
+# render_plan). DeepInfra encaisse une forte concurrence : défaut large (50), surchargeable par
+# DEEPINFRA_MAX_CONCURRENCY. Sert de garde-fou (fan-out borné) plus que de throttle serré.
+DEEPINFRA_MAX_CONCURRENCY = max(1, int(os.getenv("DEEPINFRA_MAX_CONCURRENCY", "50")))
+_DEEPINFRA_SEM = threading.BoundedSemaphore(DEEPINFRA_MAX_CONCURRENCY)
+
+
 def deepinfra_post(url: str, payload: dict, token: str = None) -> dict:
     """POST authentifié vers une inférence DeepInfra, retourne le JSON.
-    `token` (depuis le provider du channel) prime ; sinon clé globale du .env."""
+    `token` (depuis le provider du channel) prime ; sinon clé globale du .env.
+    Concurrence bornée par _DEEPINFRA_SEM (DEEPINFRA_MAX_CONCURRENCY, défaut 50)."""
     headers = {
         "Authorization": f"bearer {token or API_KEYS['deepinfra_api_key']}",
         "Content-Type": "application/json",
     }
-    r = requests.post(url, json=payload, headers=headers, timeout=900)
+    with _DEEPINFRA_SEM:
+        r = requests.post(url, json=payload, headers=headers, timeout=900)
     if r.status_code >= 400:
         # Remonte le CORPS de l'erreur DeepInfra (raison du 422/400) au lieu d'un HTTPError nu.
         raise RuntimeError(f"DeepInfra {r.status_code}: {r.text[:400]}")
@@ -460,6 +487,80 @@ def image_to_clip(
     return out
 
 
+# ========================
+# SOUS-TITRES — alignement ElevenLabs (Forced Alignment) + incrustation ffmpeg/libass
+# ========================
+def elevenlabs_forced_alignment(audio_path: str, transcript: str, api_key: str,
+                                base_url: str = None) -> list[dict]:
+    """Aligne un transcript DÉJÀ CONNU sur l'audio via ElevenLabs Forced Alignment
+    (POST /v1/forced-alignment). Le texte étant l'input TTS exact, l'alignement est précis
+    (ni transcription ni faute de mot). Retourne [{text, start, end}] au mot (secondes).
+    `base_url` = racine du provider ElevenLabs (comme le TTS) ; défaut api.elevenlabs.io."""
+    root = (base_url or "https://api.elevenlabs.io").rstrip("/")
+    if root.endswith("/v1"):
+        root = root[:-3]
+    url = f"{root}/v1/forced-alignment"
+    with open(audio_path, "rb") as fh:
+        files = {"file": (os.path.basename(audio_path), fh, "audio/wav")}
+        r = requests.post(url, headers={"xi-api-key": api_key},
+                          files=files, data={"text": transcript}, timeout=180)
+    if r.status_code >= 400:
+        raise RuntimeError(f"ElevenLabs forced-alignment {r.status_code}: {r.text[:300]}")
+    words = r.json().get("words") or []
+    return [{"text": (w.get("text") or "").strip(),
+             "start": float(w.get("start") or 0.0), "end": float(w.get("end") or 0.0)}
+            for w in words if (w.get("text") or "").strip()]
+
+
+def _srt_ts(t: float) -> str:
+    """Secondes -> timecode SRT 'HH:MM:SS,mmm'."""
+    t = max(0.0, t)
+    h, rem = divmod(int(t), 3600)
+    m, s = divmod(rem, 60)
+    ms = int(round((t - int(t)) * 1000))
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def words_to_srt(words: list[dict], out_path: str, max_chars: int = 24,
+                 max_dur: float = 1.6, max_gap: float = 0.6) -> str:
+    """Regroupe les mots alignés en légendes COURTES et punchy (format social) -> fichier .srt.
+    Coupe sur : trop de caractères, légende trop longue, gros silence, ou ponctuation forte."""
+    captions, cur = [], []
+    for w in words:
+        if cur:
+            chars = sum(len(x["text"]) + 1 for x in cur) + len(w["text"])
+            dur = w["end"] - cur[0]["start"]
+            gap = w["start"] - cur[-1]["end"]
+            hard_break = cur[-1]["text"][-1:] in ".!?…"
+            if chars > max_chars or dur > max_dur or gap > max_gap or hard_break:
+                captions.append(cur); cur = []
+        cur.append(w)
+    if cur:
+        captions.append(cur)
+    blocks = []
+    for i, cap in enumerate(captions, 1):
+        text = " ".join(x["text"] for x in cap).strip().upper()
+        blocks.append(f"{i}\n{_srt_ts(cap[0]['start'])} --> {_srt_ts(cap[-1]['end'])}\n{text}\n")
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(blocks))
+    return out_path
+
+
+def burn_subtitles(video_in: str, srt_path: str, out: str,
+                   font_size: int = 16, margin_v: int = 60) -> str:
+    """Incruste les sous-titres SRT (libass) : bas-centre, gras, contour noir — lisible en 9:16.
+    `margin_v` = marge basse (unités du script libass), `font_size` idem. À CALIBRER sur un vrai
+    rendu (les unités libass sont relatives à la résolution du script, pas aux pixels vidéo)."""
+    style = (f"Alignment=2,Fontsize={font_size},Bold=1,Outline=2,Shadow=0,MarginV={margin_v},"
+             "PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&")
+    # Échappement pour le filtre `subtitles` (les ':' et '\' du chemin cassent le parsing).
+    esc = srt_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    sh(["ffmpeg", "-y", "-i", video_in,
+        "-vf", f"subtitles='{esc}':force_style='{style}'",
+        "-c:a", "copy", out])
+    return out
+
+
 def concat_clips(clips: list, out: str) -> str:
     """Assemble plusieurs clips (déjà normalisés) en une vidéo finale."""
     list_path = os.path.join(os.path.dirname(out) or ".", "_concat_list.txt")
@@ -532,28 +633,69 @@ def synthesize_audio(
     return out, ffprobe_duration(out)
 
 
+def _is_inference_edit_model(model: str) -> bool:
+    """Le modèle d'édition passe-t-il par l'endpoint INFERENCE brut (image_urls) au lieu de
+    l'API OpenAI images.edit ? (Wan2.7-Image-Edit : {prompt, image_urls} -> {images:[url]})."""
+    return model.startswith(INFERENCE_EDIT_PREFIXES)
+
+
+def _edit_inference_endpoint(model_config: dict = None) -> tuple[str, str]:
+    """(URL inference DeepInfra pour IMAGE_EDIT_MODEL, token). Le provider (base_url/token) vient du
+    rôle image_generator ; le MODÈLE reste IMAGE_EDIT_MODEL (le model_name du rôle porte le t2i)."""
+    provider = (model_config or {}).get("provider") or {}
+    base = (provider.get("base_url") or "https://api.deepinfra.com/v1/openai").rstrip("/")
+    root = base[: -len("/openai")] if base.endswith("/openai") else base
+    token = provider.get("token") or API_KEYS["deepinfra_api_key"]
+    return f"{root}/inference/{IMAGE_EDIT_MODEL}", token
+
+
+def _edit_background_inference(src_url: str, prompt: str, out: str, model_config: dict = None) -> str:
+    """Édition de fond via l'endpoint inference (Wan). `src_url` DOIT être une URL publique : le
+    backend (DashScope) la télécharge. Renvoie une URL de sortie, qu'on rapatrie dans `out`."""
+    url, token = _edit_inference_endpoint(model_config)
+    print(f"🎨 Édition d'image ({IMAGE_EDIT_MODEL}) via inference DeepInfra...")
+    data = deepinfra_post(url, {"prompt": prompt, "image_urls": [src_url]}, token=token)
+    images = data.get("images") or []
+    if not images:
+        raise RuntimeError(f"{IMAGE_EDIT_MODEL}: réponse sans image ({json.dumps(data)[:200]})")
+    download(images[0], out)
+    print(f"   ✅ {out}")
+    return out
+
+
 def prepare_scene_portrait(
     regen: bool = False,
     src: str = AVATAR_LOCAL,
     prompt: str = BACKGROUND_PROMPT,
     out: str = SCENE_PORTRAIT_LOCAL,
     model_config: dict = None,
+    src_url: str = None,
 ) -> str:
-    """Édite une image d'avatar (FLUX Kontext) pour lui donner un fond cohérent.
-    Le provider (endpoint/token) vient du rôle `image_generator` du channel (sinon clé globale).
-    Le modèle d'ÉDITION reste KONTEXT_MODEL (édition, distinct du t2i). Réutilise `out` sauf regen.
+    """Édite une image d'avatar pour lui donner un fond cohérent (identité préservée).
+    Le provider (endpoint/token) vient du rôle `image_generator` du channel (sinon clé globale) ; le
+    MODÈLE d'édition est IMAGE_EDIT_MODEL (distinct du t2i porté par model_config.model_name).
+    Deux backends selon IMAGE_EDIT_MODEL :
+    - inference DeepInfra (Wan2.7-Image-Edit) : requiert `src_url` (URL publique, téléchargée en amont) ;
+    - API OpenAI images.edit (FLUX Kontext, Qwen-Image-Edit) : édite le fichier local `src`.
+    Réutilise `out` sauf `regen`.
     """
     if os.path.exists(out) and not regen:
         print(f"♻️  Réutilise {out}")
         return out
 
+    if _is_inference_edit_model(IMAGE_EDIT_MODEL):
+        if not src_url:
+            raise RuntimeError(
+                f"{IMAGE_EDIT_MODEL} édite depuis une URL publique : `src_url` manquant.")
+        return _edit_background_inference(src_url, prompt, out, model_config)
+
     rgb = os.path.join(os.path.dirname(out) or ".", "_portrait_rgb.png")
     os.makedirs(os.path.dirname(rgb) or ".", exist_ok=True)
     to_rgb(src, rgb)
     client = _image_client(model_config)
-    print("🎨 FLUX Kontext: génération du fond cohérent...")
+    print(f"🎨 Édition d'image ({IMAGE_EDIT_MODEL}): génération du fond cohérent...")
     resp = client.images.edit(
-        model=KONTEXT_MODEL,
+        model=IMAGE_EDIT_MODEL,
         image=open(rgb, "rb"),
         prompt=prompt,
         n=1,
@@ -586,7 +728,7 @@ def text_to_image(
     pour un backend Reference-to-Video (Wan) quand aucune réf n'est fournie -> t2v aussi sur DeepInfra.
     """
     client = _image_client(model_config)
-    model = (model_config or {}).get("model_name") or FLUX_T2I_MODEL
+    model = (model_config or {}).get("model_name") or IMAGE_T2I_MODEL
     resp = client.images.generate(model=model, prompt=prompt, n=1, size=size)
     d = resp.data[0]
     if getattr(d, "b64_json", None):
@@ -610,7 +752,7 @@ def generate_lipsync(
     model_config: dict = None,
 ) -> str:
     """[A-roll] Tête parlante. Deux backends, LTX activé par le flag global
-    USE_LTX_LIPSYNC OU par le provider "ltx_local" du rôle lip_sync du channel :
+    USE_LTX_LIPSYNC OU par le provider "ltx_local" du rôle video_avatar du channel :
 
     - DeepInfra/Pruna (défaut) : anime le portrait piloté PAR L'AUDIO (image+audio),
       l'audio sert aussi de bande-son. Retourne le clip brut (audio inclus).
@@ -837,21 +979,40 @@ def generate_broll(
         )
 
     url, token = _deepinfra_inference(model_config, WAN_URL)
-    payload = {
-        "prompt": prompt,
-        "negative_prompt": NEGATIVE_PROMPT,
-        "resolution": RESOLUTION,
-        "ratio": RATIO,
-        "duration": duration,
-        "watermark": False,
-        "seed": seed,
-    }
-    # `media` (image de réf) UNIQUEMENT si présent : les modèles T2V (texte->vidéo, ex.
-    # Wan2.2-T2V) rejettent une liste vide ; les modèles R2V/I2V l'exigent non vide.
-    if media:
-        payload["media"] = media
+    _name = ((model_config or {}).get("model_name") or "").lower()
+    if "2.6" in _name:
+        # Wan2.6-T2V (schéma DeepInfra) : `size` accepte le VERTICAL natif (720*1280) et `duration`
+        # est LIBRE (2-15 s) -> le clip colle à la narration (pas de crop ni de troncature à 5 s).
+        # Contraintes de longueur du schéma : prompt <=1500, negative_prompt <=500.
+        payload = {
+            "prompt": prompt[:1500],
+            "negative_prompt": NEGATIVE_PROMPT[:500],
+            "size": "720*1280",
+            "duration": int(max(2, min(15, round(duration)))),
+            "seed": seed,
+        }
+        # NB : Wan2.6-T2V est purement texte->vidéo (pas de champ `media`/image de réf).
+    else:
+        # Contrat Wan2.2-T2V-A14B : `resolution` ("720p"), `seconds` (5 FIXE), `orientation`
+        # ("landscape" 1280x720 — QUE du 16:9). Le clip paysage est recadré 9:16 en aval.
+        payload = {
+            "prompt": prompt,
+            "negative_prompt": NEGATIVE_PROMPT,
+            "resolution": "720p",
+            "seconds": 5,
+            "orientation": "landscape",
+            "seed": seed,
+        }
+        # `media` : uniquement pour les modèles R2V/I2V (référence->vidéo), pas les T2V purs.
+        if media:
+            payload["media"] = media
     data = deepinfra_post(url, payload, token=token)
-    url = data.get("video_url")
-    if not url:
+    video_url = data.get("video_url")
+    if not video_url:
         raise RuntimeError(f"Wan: pas de video_url ({json.dumps(data)[:200]})")
-    return download(url, dest)
+    # Le schéma de sortie précise que `video_url` PEUT être une Data URL (base64) -> on décode.
+    if video_url.startswith("data:"):
+        with open(dest, "wb") as f:
+            f.write(base64.b64decode(video_url.split(",", 1)[1]))
+        return dest
+    return download(video_url, dest)

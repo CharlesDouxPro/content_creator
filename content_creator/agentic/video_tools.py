@@ -22,11 +22,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 from content_creator.agentic.capabilities import (
     Ctx,
-    OUTPUT_DIR, SEED_BASE, PRUNA_MOVEMENT, BACKGROUND_TEMPLATE,
+    OUTPUT_DIR, SEED_BASE, TALKING_SEED, PRUNA_MOVEMENT, BACKGROUND_TEMPLATE,
     sh, download, upload_public, ffprobe_duration,
     synthesize_audio, generate_lipsync, generate_broll,
     reframe_vertical, concat_clips, prepare_scene_portrait,
     fetch_web_image, is_image_path, image_to_clip,
+    elevenlabs_forced_alignment, words_to_srt, burn_subtitles,
 )
 from content_creator.config.config import VIDEO_BACKEND_CONFIG
 from content_creator.pipelines.modules import VideoGenerator, NewsScraper, FullArticle
@@ -115,6 +116,17 @@ def _render_spec(session: "VideoSession", spec: dict) -> dict:
     raw = os.path.join(d, f"plan_{idx+1}_raw.mp4")
     final = os.path.join(d, f"plan_{idx+1}.mp4")
     ltx_params = spec.get("ltx_params") or {}
+    # INCRÉMENTAL : ce plan a déjà été rendu (retry d'assemble_video après un échec partiel) -> on le
+    # RÉUTILISE tel quel, sans re-TTS ni re-génération vidéo. Chaque run a son output_dir horodaté,
+    # donc pas de cache périmé entre runs : un retry ne refait QUE les plans manquants/échoués.
+    if os.path.exists(final) and os.path.getsize(final) > 0:
+        try:
+            dur = ffprobe_duration(final)
+        except Exception:
+            dur = float(spec.get("duration_s") or 0.0)
+        print(f"   ♻️ [plan {idx+1} {spec['kind']}] déjà rendu — réutilisé", flush=True)
+        return {"idx": idx, "kind": spec["kind"], "ok": True, "clip": final,
+                "duration_s": round(dur, 1), "render_s": 0.0}
     models = session.models or {}
     # Voix propagée depuis le channel (voice_generator) / le personnage du plan :
     # nom de voix + style (ton, Gemini) + voice_model + langue, et la clé/endpoint Google.
@@ -129,7 +141,7 @@ def _render_spec(session: "VideoSession", spec: dict) -> dict:
             audio_url = upload_public(session.ctx.gcs, narration, f"media/test/narration_{idx+1}.mp3")
             generate_lipsync(spec["portrait_url"], audio_url, spec["video_prompt"],
                              spec["seed"], raw, audio_path=narration, ltx_params=ltx_params,
-                             model_config=models.get("lip_sync"))
+                             model_config=models.get("video_avatar"))
             if VIDEO_BACKEND_CONFIG["use_ltx_lipsync"]:
                 # LTX i2v ne porte pas la narration : on muxe la narration TTS comme bande-son.
                 reframe_vertical(raw, final, audio_in=narration)
@@ -259,7 +271,7 @@ def add_talking_clip(session: VideoSession, text: str, expression: str = None,
     video_prompt = " ".join(p for p in [expression, description, PRUNA_MOVEMENT] if p)
     session.plan.append({
         "kind": "talking", "idx": idx, "text": text, "video_prompt": video_prompt,
-        "portrait_url": portrait, "voice": voice, "seed": SEED_BASE + idx,
+        "portrait_url": portrait, "voice": voice, "seed": TALKING_SEED,
         "ltx_params": _collect_ltx_params(kwargs),
     })
     return {"status": "ok", "queued": "talking", "slot": idx + 1, "character": character, "text": text[:60]}
@@ -546,7 +558,15 @@ def set_scene_background(session: VideoSession, character: str, description: str
                 "the background (FLUX Kontext) applies to a character's portrait."}
     out = os.path.join(session.output_dir, f"scene_{character}.jpg")
     prompt = BACKGROUND_TEMPLATE.format(scene=description)   # identité préservée + décor inféré
-    scene = prepare_scene_portrait(regen=True, src=local, prompt=prompt, out=out)
+    # URL publique de la source : requise par les modèles d'édition "inference" (Wan) que DashScope
+    # télécharge. On réutilise le portrait_url déjà uploadé, sinon on uploade le fichier local.
+    src_url = char.get("portrait_url")
+    if not src_url:
+        src_url = upload_public(session.ctx.gcs, local, f"media/test/char_{character}_src.png")
+    # Provider/endpoint issu du rôle image_generator du channel (sinon repli global dans capabilities).
+    scene = prepare_scene_portrait(regen=True, src=local, prompt=prompt, out=out,
+                                   model_config=(session.models or {}).get("image_generator"),
+                                   src_url=src_url)
     url = upload_public(session.ctx.gcs, scene, f"media/test/scene_{character}.jpg")
     # Met à jour le portrait du personnage -> ses prochains plans utiliseront ce décor.
     session.characters[character]["portrait_url"] = url
@@ -572,14 +592,55 @@ def assemble_video(session: VideoSession) -> dict:
     return {"status": "ok", "final_video": out, "n_clips": len(session.clips), "plans": results}
 
 
+def _plan_transcript(session: VideoSession) -> str:
+    """Transcript EXACT de la narration = concaténation des textes des plans DANS L'ORDRE (c'est
+    l'input TTS, donc l'audio final le dit mot pour mot). Sert de vérité pour l'alignement au mot."""
+    parts = []
+    for spec in sorted(session.plan, key=lambda s: s["idx"]):
+        t = spec.get("text") or spec.get("narration_text")
+        if t and t.strip():
+            parts.append(t.strip())
+    return " ".join(parts).strip()
+
+
+def _subtitles_elevenlabs(session: VideoSession, transcript: str,
+                          api_key: str, base_url: str = None) -> str:
+    """Extrait l'audio du montage -> aligne le transcript connu (ElevenLabs) -> SRT -> incruste."""
+    d = session.output_dir
+    audio = os.path.join(d, "subs_audio.wav")
+    srt = os.path.join(d, "subs.srt")
+    out = os.path.join(d, "final_subtitled.mp4")
+    # Audio mono 16 kHz : format léger et suffisant pour l'alignement.
+    sh(["ffmpeg", "-y", "-i", session.final_video, "-vn", "-ac", "1", "-ar", "16000", audio])
+    words = elevenlabs_forced_alignment(audio, transcript, api_key, base_url)
+    if not words:
+        raise RuntimeError("aucun mot aligné")
+    words_to_srt(words, srt)
+    return burn_subtitles(session.final_video, srt, out)
+
+
 @tool({
     "name": "add_subtitles",
-    "description": "Burns animated subtitles onto the final video (Creatomate). Call it AFTER assemble_video.",
+    "description": "Burns word-synced subtitles onto the final video. Call it AFTER assemble_video.",
     "parameters": {"type": "object", "properties": {}},
 })
 def add_subtitles(session: VideoSession) -> dict:
     if not session.final_video:
         return {"status": "error", "error": "call assemble_video first"}
+    # 1) ElevenLabs Forced Alignment (défaut) : le transcript est l'input TTS EXACT -> calage au mot
+    # parfait, sans transcription. Clé = provider voice_generator du channel, sinon .env.
+    transcript = _plan_transcript(session)
+    voice_prov = (session.voice or {}).get("provider") or {}
+    api_key = voice_prov.get("token") or os.getenv("ELEVENLABS_API_KEY")
+    if transcript and api_key:
+        try:
+            out = _subtitles_elevenlabs(session, transcript, api_key, voice_prov.get("base_url"))
+            session.final_video = out
+            return {"status": "ok", "final_video": out, "engine": "elevenlabs"}
+        except Exception as e:
+            print(f"[subtitles] ElevenLabs KO ({e}) — repli Creatomate", flush=True)
+
+    # 2) Repli : Creatomate (auto-transcription) — inchangé.
     url = upload_public(session.ctx.gcs, session.final_video, "media/test/final_for_subs.mp4")
     vg = VideoGenerator()
     resp = vg.add_subtitles(url)
@@ -591,7 +652,7 @@ def add_subtitles(session: VideoSession) -> dict:
     out = os.path.join(session.output_dir, "final_subtitled.mp4")
     download(str(final.url), out)
     session.final_video = out
-    return {"status": "ok", "final_video": out}
+    return {"status": "ok", "final_video": out, "engine": "creatomate"}
 
 
 @tool({

@@ -45,6 +45,9 @@ def submit(base_url: str, token: str, payload: dict) -> str:
     vid = data.get("id")
     if not vid:
         raise RuntimeError(f"SGLang: réponse sans id ({json.dumps(data)[:200]})")
+    # Trace de soumission : plusieurs lignes collées = jobs soumis EN PARALLÈLE (un thread/plan).
+    # Si les `✓` tombent ensuite un par un, c'est le SERVEUR qui sérialise le rendu sur le GPU.
+    print(f"[SGLang] job soumis id={vid}", flush=True)
     return vid
 
 

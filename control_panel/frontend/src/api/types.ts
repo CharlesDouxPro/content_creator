@@ -270,6 +270,8 @@ export interface components {
             language?: string | null;
             /** Description */
             description?: string | null;
+            /** Avatar Prompt */
+            avatar_prompt?: string | null;
         };
         /** CharacterAsset */
         CharacterAsset: {
@@ -327,9 +329,11 @@ export interface components {
         ModelPool: {
             master_mind: components["schemas"]["ModelSpec"];
             slm: components["schemas"]["ModelSpec"];
-            lip_sync: components["schemas"]["ModelSpec"];
+            video_avatar: components["schemas"]["ModelSpec"];
             video_generator: components["schemas"]["ModelSpec"];
             voice_generator: components["schemas"]["ModelSpec"];
+            /** Optionnel côté backend (défaut Qwen/DeepInfra) ; toujours présent après defaultPool(). */
+            image_generator: components["schemas"]["ModelSpec"];
         };
         /**
          * ModelSpec

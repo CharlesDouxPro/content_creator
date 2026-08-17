@@ -4,11 +4,45 @@ l'écriture : un payload invalide (skill/provider inconnu, champ en trop) est re
 """
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
-from content_creator.config.schema import Channel
+from content_creator.config.schema import Channel, resolve_pool
 from control_panel.backend import store
 
 router = APIRouter(prefix="/api/channels", tags=["channels"])
+
+
+class EnhancedPrompt(BaseModel):
+    prompt: str
+
+
+@router.post("/enhance-prompt", response_model=EnhancedPrompt)
+def enhance_prompt(channel: Channel) -> EnhancedPrompt:
+    """Améliore le brief (`context.prompt`) du channel via son `master_mind`, calibré sur le moteur
+    vidéo cible (`video_generator`). N'écrit RIEN : renvoie juste le prompt amélioré, que le front
+    injecte dans le champ (l'utilisateur sauvegarde ensuite comme d'habitude)."""
+    # Import paresseux : garde le démarrage du backend léger (build_prompt_guide tire video_tools).
+    from content_creator.agentic.prompt_enhancer import enhance_prompt as _enhance
+
+    if not channel.context.prompt.strip():
+        raise HTTPException(422, "prompt vide — rien à améliorer")
+    try:
+        models = resolve_pool(channel.models)
+        enhanced = _enhance(
+            prompt=channel.context.prompt,
+            models_config=models,
+            skill_name=channel.skill,
+            mood=channel.context.mood or None,
+            characters={
+                name: c.model_dump(exclude_none=True)
+                for name, c in channel.context.characters.items()
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:  # provider KO, modèle indispo, réseau… -> 502 exploitable côté front
+        raise HTTPException(502, f"échec de l'amélioration du prompt : {e}")
+    return EnhancedPrompt(prompt=enhanced)
 
 
 @router.get("", response_model=list[Channel])

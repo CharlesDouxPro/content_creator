@@ -24,12 +24,12 @@ from typing import TypedDict
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from content_creator.agentic.video_skills import list_skills
-from inference_engine.providers import load_providers
+from content_creator.config.providers import load_providers
 
 
 # ============================================================================
 # Providers — le REGISTRE (base_url + api_key, nommés) vit désormais dans
-# inference_engine/providers.py (défini/renseigné depuis le front, stocké en GCS).
+# content_creator/config/providers.py (défini/renseigné depuis le front, stocké en GCS).
 # Ici on ne fait que le RÉSOUDRE vers la forme {base_url, token} attendue en aval.
 # Le JSON channels ne référence qu'un `provider_id` (nom) ; la clé est injectée à la
 # résolution (jamais sérialisée dans channels.json).
@@ -47,7 +47,8 @@ def get_providers() -> dict[str, ProviderConfig]:
     }
 
 
-ROLES = ("master_mind", "slm", "lip_sync", "video_generator", "voice_generator")
+ROLES = ("master_mind", "slm", "video_avatar", "video_generator", "voice_generator",
+         "image_generator")
 
 
 # ============================================================================
@@ -63,9 +64,10 @@ class ModelConfig(TypedDict):
 class PoolModelConfig(TypedDict):
     master_mind: ModelConfig
     slm: ModelConfig
-    lip_sync: ModelConfig
+    video_avatar: ModelConfig          # image portrait + audio -> talking head (Pruna p-video-avatar)
     video_generator: ModelConfig
     voice_generator: ModelConfig
+    image_generator: ModelConfig       # text-to-image + édition de fond (avatars, 1re frame i2v)
 
 
 # ============================================================================
@@ -94,9 +96,15 @@ class ModelPool(BaseModel):
 
     master_mind: ModelSpec
     slm: ModelSpec
-    lip_sync: ModelSpec
+    video_avatar: ModelSpec            # image portrait + audio -> talking head (Pruna p-video-avatar)
     video_generator: ModelSpec
     voice_generator: ModelSpec
+    # OPTIONNEL (défaut) : les channels antérieurs à ce rôle restent valides sans le déclarer.
+    # Provider par défaut = charles_deepinfra (garanti dans le registre ; modèle image dispo dessus).
+    # model_name = modèle TEXT-TO-IMAGE ; l'édition de fond utilise IMAGE_EDIT_MODEL (Wan) via le même
+    # provider. Pour une clé image dédiée, enregistrer `deepinfra_image` via le front puis le choisir.
+    image_generator: ModelSpec = Field(
+        default_factory=lambda: ModelSpec(model_name="stabilityai/sd3.5", provider_id="charles_deepinfra"))
 
 
 class Character(BaseModel):
@@ -109,6 +117,8 @@ class Character(BaseModel):
     voice_model: str | None = None    # modelName TTS (requis pour `style`)
     language: str | None = None       # locale (ex. "fr-FR")
     description: str | None = None     # apparence/personnalité (injectée dans les shots)
+    avatar_prompt: str | None = None   # si aucune `image` : prompt de GÉNÉRATION de l'avatar (FLUX t2i).
+                                       # À défaut, l'avatar est généré depuis `description`.
 
 
 class Ressources(BaseModel):
@@ -155,11 +165,13 @@ class Channel(BaseModel):
 DEFAULT_POOL = ModelPool(
     master_mind=ModelSpec(model_name="anthropic/claude-opus-4-8", provider_id="arlq_deepinfra"),
     slm=ModelSpec(model_name="anthropic/claude-opus-4-8", provider_id="arlq_deepinfra"),
-    lip_sync=ModelSpec(model_name="PrunaAI/p-video-avatar", provider_id="charles_deepinfra"),
+    video_avatar=ModelSpec(model_name="PrunaAI/p-video-avatar", provider_id="charles_deepinfra"),
     video_generator=ModelSpec(model_name="Wan-AI/Wan2.7-R2V", provider_id="charles_deepinfra"),
     # Voix par défaut = ElevenLabs (model_name = voice_id ElevenLabs utilisé si un personnage
     # ne précise pas sa voix). Ici "Brian" (voix narrateur grave).
     voice_generator=ModelSpec(model_name="nPczCjzI2devNBz1zQrb", provider_id="elevenlabs"),
+    # Image : t2i sd3.5 sur DeepInfra. L'édition de fond utilise IMAGE_EDIT_MODEL (Wan) via le MÊME provider.
+    image_generator=ModelSpec(model_name="stabilityai/sd3.5", provider_id="charles_deepinfra"),
 )
 
 

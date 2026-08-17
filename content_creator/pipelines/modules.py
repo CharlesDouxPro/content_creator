@@ -6,6 +6,7 @@ Contains all the scraping, AI processing, and video generation logic.
 import re
 import os
 import time
+import threading
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,16 @@ import mimetypes
 from google.cloud import storage
 from runwayml import AsyncRunwayML
 from content_creator.config.config import API_KEYS, AI_CONFIG, VIDEO_CONFIG, GCS_CONFIG, SCRAPER_CONFIG
+from content_creator.agentic.humanizer import HUMANIZER_GUIDE
+
+
+# Plafond de concurrence des appels TTS ElevenLabs, PARTAGÉ par tous les threads du process :
+# les plans d'un run (et les runs de plusieurs channels) sont rendus en parallèle et tapent
+# ElevenLabs simultanément. Or l'API limite la concurrence par plan (Free=2, Starter=3, Creator=5…) :
+# au-delà -> HTTP 429. On sérialise donc les appels via ce sémaphore pour ne PAS saturer l'API
+# (le retry/backoff ne fait que temporiser APRÈS coup). Surchargeable par ELEVENLABS_MAX_CONCURRENCY.
+ELEVENLABS_MAX_CONCURRENCY = max(1, int(os.environ.get("ELEVENLABS_MAX_CONCURRENCY", "2")))
+_ELEVENLABS_SEM = threading.BoundedSemaphore(ELEVENLABS_MAX_CONCURRENCY)
 
 
 # --- Data Models ---
@@ -270,7 +281,8 @@ class ArticleSummarizer:
                         "Ne met pas d'emoji dans le script."
                         "N'ajoute pas d'informations type [fin du script]"
                         "Ajoute abonne toi pour plus de contenu à la fin du script."
-                        "Met un maximum de 20 mots par phrase."
+                        "Met un maximum de 20 mots par phrase.\n\n"
+                        + HUMANIZER_GUIDE
                     ),
                 },
                 {
@@ -562,17 +574,20 @@ class ArticleSummarizer:
             headers = {"xi-api-key": api_key, "Content-Type": "application/json",
                        "Accept": "audio/mpeg"}
             body = {"text": text, "model_id": model or "eleven_multilingual_v2"}
-            # Retry/backoff sur 429 (limite de concurrence ElevenLabs : les plans sont rendus
-            # en parallèle). On respecte `retry-after` si fourni, sinon backoff exponentiel.
+            # Sémaphore = ne JAMAIS dépasser ELEVENLABS_MAX_CONCURRENCY appels simultanés (évite le
+            # gros des 429). Le retry/backoff reste un filet pour les 429 résiduels : on respecte
+            # `retry-after` si fourni, sinon backoff exponentiel. On garde le sémaphore pendant les
+            # retries pour ne pas relâcher un créneau à un autre thread en plein throttling.
             response = None
-            for attempt in range(6):
-                response = requests.post(url, headers=headers, json=body, timeout=60)
-                if response.status_code != 429:
-                    break
-                wait = float(response.headers.get("retry-after") or min(2 ** attempt, 20))
-                print(f"[TTS ElevenLabs] 429 (concurrence) — retry dans {wait:.0f}s "
-                      f"(tentative {attempt + 1}/6)")
-                time.sleep(wait)
+            with _ELEVENLABS_SEM:
+                for attempt in range(6):
+                    response = requests.post(url, headers=headers, json=body, timeout=60)
+                    if response.status_code != 429:
+                        break
+                    wait = float(response.headers.get("retry-after") or min(2 ** attempt, 20))
+                    print(f"[TTS ElevenLabs] 429 (concurrence) — retry dans {wait:.0f}s "
+                          f"(tentative {attempt + 1}/6)")
+                    time.sleep(wait)
             response.raise_for_status()
             with open(output_file, "wb") as f:
                 f.write(response.content)

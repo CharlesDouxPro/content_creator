@@ -15,10 +15,13 @@ configs**, **lancer** la pipeline et voir la **galerie** des vidéos produites.
 
 ```bash
 uv sync --extra panel
-uv run uvicorn control_panel.backend.main:app --reload --port 8080
+uv run uvicorn control_panel.backend.main:app --port 8080
 ```
 
 Docs interactives : http://localhost:8080/docs · OpenAPI : http://localhost:8080/openapi.json
+
+> Le serveur ne redémarre PAS tout seul quand un fichier change. Pour un rechargement auto en
+> dev, ajoute `--reload` (mais il coupe le serveur à chaque édition `.py`).
 
 ### 2. Frontend (port 5173)
 

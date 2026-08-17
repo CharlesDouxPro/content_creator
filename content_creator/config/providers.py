@@ -12,8 +12,8 @@ depuis l'env pour ne pas casser les channels existants tant que rien n'est rense
 
 from __future__ import annotations
 
-import os
 import json
+import os
 
 from pydantic import BaseModel
 
@@ -45,6 +45,12 @@ DEFAULT_PROVIDERS: dict[str, Provider] = {
         base_url="https://api.deepinfra.com/v1/openai",
         api_key=os.getenv("CHARLES_DEEPINFRA_TOKEN", ""),
     ),
+    # Génération d'IMAGE (rôle image_generator) — DeepInfra, modèles non-FLUX (Qwen) accessibles
+    # depuis ce compte. Clé dédiée DEEPINFRA_IMAGE_TOKEN, sinon repli sur le token ARLQ.
+    "deepinfra_image": Provider(
+        base_url="https://api.deepinfra.com/v1/openai",
+        api_key=os.getenv("DEEPINFRA_IMAGE_TOKEN", "") or os.getenv("ARLQ_DEEPINFRA_TOKEN", ""),
+    ),
     "google_tts": Provider(
         base_url="https://texttospeech.googleapis.com/v1",
         api_key=str(API_KEYS.get("google_tts_api_key") or ""),
@@ -56,6 +62,15 @@ DEFAULT_PROVIDERS: dict[str, Provider] = {
     "ltx_local": Provider(
         base_url=str(VIDEO_BACKEND_CONFIG["ltx_server_url"]),
         api_key="",
+    ),
+    # Routeur d'inférence GPU (repo indépendant `inference_engine`, service HTTP
+    # `python -m inference_engine.server`) : expose /v1/videos pour MiniMax-H3.
+    # L'agent route déjà `minimax_h3` vers /v1/videos avec le base_url du provider
+    # vidéo — il suffit de pointer ce provider sur le serveur. Défaut seedé
+    # seulement (providers.json/GCS fait foi une fois renseigné).
+    "h3_local": Provider(
+        base_url=os.getenv("INFERENCE_ROUTER_URL", "http://localhost:30000"),
+        api_key=os.getenv("INFERENCE_SERVER_API_KEY", ""),
     ),
 }
 

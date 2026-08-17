@@ -27,5 +27,5 @@ export type ProviderUpdate = { base_url: string; api_key: string }
 
 export type Role = keyof ModelPool
 export const ROLES: Role[] = [
-  'master_mind', 'slm', 'lip_sync', 'video_generator', 'voice_generator',
+  'master_mind', 'slm', 'video_avatar', 'video_generator', 'voice_generator', 'image_generator',
 ]

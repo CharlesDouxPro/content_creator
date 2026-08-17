@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from content_creator.agentic.video_skills import list_skills, get_skill
 from content_creator.config.channels import CHIRP3_HD_VOICES
 from content_creator.config.schema import ROLES, DEFAULT_POOL
-from inference_engine.providers import load_providers
+from content_creator.config.providers import load_providers
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -95,10 +95,12 @@ def catalog_models() -> ModelsInfo:
         "slm": ["anthropic/claude-opus-4-8", "anthropic/claude-haiku-4-5", "openai/gpt-oss-120b"],
         # Pour LTX local : choisir le provider "ltx_local" (le model_name est cosmétique,
         # c'est le serveur qui charge son checkpoint ; le provider_id aiguille le backend).
-        "lip_sync": ["PrunaAI/p-video-avatar", "ltx-2.3"],
+        "video_avatar": ["PrunaAI/p-video-avatar", "ltx-2.3"],
         "video_generator": ["Wan-AI/Wan2.7-R2V", "ltx-2.3"],
         # ElevenLabs voice_id par défaut (Brian / Adam / Sarah). Voir GET /catalog/elevenlabs-voices.
         "voice_generator": ["nPczCjzI2devNBz1zQrb", "pNInz6obpgDQGcFmaJgB", "EXAVITQu4vr4xnSDxMaL"],
+        # Text-to-image (le model_name porte le t2i ; l'édition de fond utilise IMAGE_EDIT_MODEL, ex. Wan).
+        "image_generator": ["stabilityai/sd3.5", "stabilityai/sdxl-turbo", "black-forest-labs/FLUX-1-schnell"],
     }
     return ModelsInfo(roles=list(ROLES), defaults=defaults, suggestions=suggestions)
 

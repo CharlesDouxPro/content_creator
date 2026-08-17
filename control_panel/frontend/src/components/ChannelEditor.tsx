@@ -15,6 +15,8 @@ export function ChannelEditor({ value, onChange }: Props) {
   const { skills, providers, voices, models } = useCatalog()
   const [library, setLibrary] = useState<CharacterAsset[]>([])
   const [elVoices, setElVoices] = useState<ElevenLabsVoice[]>([])
+  const [enhancing, setEnhancing] = useState(false)
+  const [enhanceErr, setEnhanceErr] = useState<string | null>(null)
   useEffect(() => {
     api.library().then(setLibrary).catch(() => {})
     api.elevenLabsVoices().then(setElVoices).catch(() => {})
@@ -24,6 +26,20 @@ export function ChannelEditor({ value, onChange }: Props) {
 
   // Applique une mutation sur une copie pleine et remonte le nouveau channel.
   const set = (mut: (c: FullChannel) => void) => { const next = clone(v); mut(next); onChange(next) }
+
+  // Envoie le brief courant au master_mind (calibré sur le moteur vidéo du channel) et remplace le
+  // prompt par la version améliorée. N'écrit rien côté serveur : l'utilisateur sauvegarde ensuite.
+  async function enhancePrompt() {
+    setEnhancing(true); setEnhanceErr(null)
+    try {
+      const { prompt } = await api.enhancePrompt(v)
+      set((c) => { c.context.prompt = prompt })
+    } catch (e) {
+      setEnhanceErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setEnhancing(false)
+    }
+  }
 
   // Options de voix : ElevenLabs (id -> nom) si dispo, sinon repli Chirp3 (Google) composé.
   const elevenOptions = elVoices.map((vo) => ({ value: vo.voice_id, label: vo.name }))
@@ -83,10 +99,18 @@ export function ChannelEditor({ value, onChange }: Props) {
       <fieldset>
         <legend>Brief</legend>
         <label className="field">
-          <span>Prompt</span>
+          <div className="row between">
+            <span>Prompt</span>
+            <button type="button" className="btn tiny" onClick={enhancePrompt}
+              disabled={enhancing || !v.context.prompt.trim()}
+              title="Améliore le brief via le master_mind, calibré sur le moteur vidéo du channel">
+              {enhancing ? '✨ Amélioration…' : '✨ Améliorer le prompt'}
+            </button>
+          </div>
           <textarea rows={5} value={v.context.prompt}
             onChange={(e) => set((c) => { c.context.prompt = e.target.value })}
             placeholder="Décris la vidéo voulue…" />
+          {enhanceErr && <small className="muted" style={{ color: 'crimson' }}>{enhanceErr}</small>}
         </label>
         <label className="field">
           <span>Mood</span>
@@ -154,6 +178,15 @@ export function ChannelEditor({ value, onChange }: Props) {
                     <input list="dl-images" value={ch.image ?? ''} placeholder="https://storage.googleapis.com/…"
                       onChange={(e) => updateCharacter(key, { image: e.target.value || null })} />
                   </label>
+                  {!ch.image && (
+                    <label className="field">
+                      <span>Avatar à générer (prompt)</span>
+                      <textarea rows={2} value={ch.avatar_prompt ?? ''}
+                        placeholder="Décris l'avatar à générer (utilisé seulement si aucune image). Ex. homme barbu, casque, studio podcast…"
+                        onChange={(e) => updateCharacter(key, { avatar_prompt: e.target.value || null })} />
+                      <small className="muted">Sans image, l'IA génère l'avatar depuis ce prompt (à défaut, depuis la description).</small>
+                    </label>
+                  )}
                   <label className="field">
                     <span>Voix {elVoices.length ? '(ElevenLabs)' : ''}</span>
                     <input list="dl-voices" value={ch.voice ?? ''} placeholder="voix (choisis dans la liste)"

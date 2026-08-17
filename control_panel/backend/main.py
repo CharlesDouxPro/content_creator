@@ -2,7 +2,9 @@
 main.py — App FastAPI du panneau de contrôle (POC local).
 
 Lancement :
-    uv run uvicorn control_panel.backend.main:app --reload --port 8080
+    uv run uvicorn control_panel.backend.main:app --port 8080
+    (ajoute --reload UNIQUEMENT si tu veux le rechargement auto : il redémarre le serveur à
+     chaque édition de fichier .py — à éviter si un run est en cours.)
 
 Expose une API typée (OpenAPI en /openapi.json) consommée par le frontend React+TS.
 Pas d'auth (POC), CORS ouvert au serveur de dev Vite (localhost:5173).

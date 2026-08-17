@@ -18,7 +18,7 @@ from openai import OpenAI
 
 from content_creator.config.channels import default_models_config
 from content_creator.pipelines.modules import GCSManager, ArticleSummarizer
-from content_creator.agentic.capabilities import Ctx, download, upload_public
+from content_creator.agentic.capabilities import Ctx, download, upload_public, text_to_image
 from content_creator.agentic.video_tools import (
     VideoSession, openai_tool_schemas, dispatch, cleanup_fetched_images,
 )
@@ -34,24 +34,62 @@ from content_creator.agentic.trace import Tracer
 # Cerveau de l'agent : modèle par défaut (rôle `master_mind`) si le channel n'en fournit pas.
 AGENT_MODEL = "anthropic/claude-opus-4-8"
 
+# Prompt de génération d'avatar (FLUX t2i) quand un personnage a une DESCRIPTION mais AUCUNE image :
+# cadrage portrait vertical, visage net face caméra, exploitable comme 1re frame de talking-head.
+# Style-agnostique (suit la description : photoréaliste OU animé selon le personnage).
+AVATAR_GEN_PROMPT = (
+    "Vertical 9:16 portrait of {description}. Head-and-shoulders framing, facing the camera, "
+    "centered, clear and well-lit face, clean uncluttered background, sharp focus, "
+    "suitable as the first frame of a talking-head clip. No text, no watermark, no logo."
+)
 
-def _resolve_characters(gcs: GCSManager, characters: dict, output_dir: str) -> dict:
+
+def _resolve_characters(gcs: GCSManager, characters: dict, output_dir: str,
+                        image_model: dict = None) -> dict:
     """Résout les personnages -> {name: {voice, style, voice_model, language, description,
     portrait_url, local_image}}. Pour un personnage avec image :
     - `portrait_url` : URL publique (upload GCS si chemin local, sinon l'URL telle quelle) — input i2v/Pruna.
-    - `local_image`  : copie locale (téléchargée si URL) — requise par set_scene_background (FLUX)."""
+    - `local_image`  : copie locale (téléchargée si URL) — requise par set_scene_background (FLUX).
+    Sans image valide MAIS avec une `description`, l'IA GÉNÈRE un avatar (FLUX t2i) et l'utilise.
+    `image_model` = ModelConfig du rôle image (sinon FLUX + clé DeepInfra globale)."""
     resolved = {}
     for name, c in (characters or {}).items():
         img = c.get("image")
         portrait_url = local_image = None
+        # Image invalide (URL cassée, chemin inexistant, voice_id collé par erreur…) : on DÉGRADE
+        # le personnage plutôt que de faire planter TOUT le run (puis on tentera une génération).
         if img:
-            if str(img).startswith("http"):
-                portrait_url = img
-                local_image = os.path.join(output_dir, f"char_{name}_src")
-                download(img, local_image)
-            else:
-                local_image = img
-                portrait_url = upload_public(gcs, img, f"media/test/char_{name}.png")
+            try:
+                if str(img).startswith("http"):
+                    portrait_url = img
+                    local_image = os.path.join(output_dir, f"char_{name}_src")
+                    download(img, local_image)
+                elif os.path.exists(img):
+                    local_image = img
+                    portrait_url = upload_public(gcs, img, f"media/test/char_{name}.png")
+                else:
+                    raise FileNotFoundError(
+                        f"`image` n'est ni une URL http(s) ni un fichier existant: {img!r}")
+            except Exception as e:
+                print(f"⚠️ personnage '{name}': image fournie ignorée ({e}).", flush=True)
+                portrait_url = local_image = None
+
+        # Aucun avatar exploitable -> l'IA génère un avatar (1re frame talking-head) depuis le
+        # prompt DÉDIÉ `avatar_prompt` (sinon `description`). Non bloquant : si la génération
+        # échoue (ou aucun texte source), le personnage reste voix off / b-roll.
+        avatar_src = (c.get("avatar_prompt") or c.get("description") or "").strip()
+        if not portrait_url and avatar_src:
+            try:
+                gen = os.path.join(output_dir, f"char_{name}_gen.png")
+                text_to_image(AVATAR_GEN_PROMPT.format(description=avatar_src),
+                              gen, model_config=image_model)
+                local_image = gen
+                portrait_url = upload_public(gcs, gen, f"media/test/char_{name}.png")
+                print(f"🎨 avatar généré pour '{name}' (aucune image fournie).", flush=True)
+            except Exception as e:
+                print(f"⚠️ personnage '{name}': génération d'avatar échouée ({e}) — "
+                      "voix off / b-roll seulement.", flush=True)
+                portrait_url = local_image = None
         resolved[name] = {"voice": c.get("voice"), "style": c.get("style"),
                           "voice_model": c.get("voice_model"), "language": c.get("language"),
                           "description": c.get("description"),
@@ -64,14 +102,15 @@ def build_session(output_dir: str, models: dict, ressources: dict = None,
     """Prépare les ressources partagées d'un run. Aucune notion d'avatar global : l'identité
     visuelle/vocale vit dans les PERSONNAGES (résolus ici). C'est le SKILL qui décide comment les
     utiliser (ex. avatar_story : un personnage sert d'avatar face caméra).
-    `models` = PoolModelConfig : `slm` -> script/titre ; `lip_sync`/`video_generator`/`voice_generator`
+    `models` = PoolModelConfig : `slm` -> script/titre ; `video_avatar`/`video_generator`/`voice_generator`
     propagés via la session. `ressources` = context.ressources exposés aux tools."""
     gcs = GCSManager()
     ctx = Ctx(gcs=gcs, summarizer=ArticleSummarizer(models["slm"]))
     return VideoSession(ctx=ctx, output_dir=output_dir,
                         models=models, ressources=ressources or {},
                         voice=models.get("voice_generator"),
-                        characters=_resolve_characters(gcs, characters, output_dir))
+                        characters=_resolve_characters(gcs, characters, output_dir,
+                                                       image_model=models.get("image_generator")))
 
 
 def _render_ressources(ressources: dict) -> str:

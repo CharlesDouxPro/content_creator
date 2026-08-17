@@ -1,0 +1,26 @@
+{
+  "arlq_deepinfra": {
+    "base_url": "https://api.deepinfra.com/v1/openai",
+    "api_key": "7jIPsm1yv398SZpzLaE0qw2DIs2Y5CZG"
+  },
+  "charles_deepinfra": {
+    "base_url": "https://api.deepinfra.com/v1/openai",
+    "api_key": "xiTiRIHkYMTp5ztYxwD3UAoxXEcganOc"
+  },
+  "deepinfra_image": {
+    "base_url": "https://api.deepinfra.com/v1/openai",
+    "api_key": "xiTiRIHkYMTp5ztYxwD3UAoxXEcganOc"
+  },
+  "google_tts": {
+    "base_url": "https://texttospeech.googleapis.com/v1",
+    "api_key": ""
+  },
+  "elevenlabs": {
+    "base_url": "https://api.elevenlabs.io",
+    "api_key": "sk_89a28be6acd08dcb5a16001e14aae95ab85893a8b1685d5a"
+  },
+  "h3_local": {
+    "base_url": "http://51.159.168.34:30010",
+    "api_key": ""
+  }
+}
