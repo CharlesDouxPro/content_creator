@@ -920,6 +920,113 @@ def _sglang_broll(prompt: str, duration: int, seed: int, ref_url: str, dest: str
     return sglang_video_client.generate(base_url, token, payload, dest)
 
 
+# ============================================================================
+# MiniMax-H3 NATIF — vidéo audiovisuelle (l'audio est GÉNÉRÉ par le modèle) + image.
+# Contrairement à generate_broll/_sglang_broll (dont l'audio natif est ensuite REMPLACÉ
+# par la narration TTS via reframe_vertical), ces fonctions CONSERVENT l'audio du modèle :
+# aucun TTS, aucun lip-sync. Le dialogue et le paysage sonore sont écrits DANS le prompt.
+# ============================================================================
+def generate_minimax_video(
+    prompt: str,
+    dest: str,
+    model_config: dict,
+    *,
+    seconds: float = 5,
+    seed: int = SEED_BASE,
+    ref_url: str = None,
+    task: str = None,
+    aspect_ratio: str = RATIO,
+    num_inference_steps: int = 9,
+    flow_shift: float = 12.0,
+    audio_flow_shift: float = 3.0,
+) -> str:
+    """Génère une vidéo audiovisuelle MiniMax-H3 (audio NATIF conservé) et renvoie le MP4.
+
+    `task` auto : `ref2va` si `ref_url` (avatar = référence d'identité, cadrage libre), sinon
+    `t2va`. `fl2va` (avatar = 1re frame) reste sélectionnable explicitement. `num_inference_steps`
+    par défaut = 9 (LoRA rapide). base_url/token = provider du rôle video_generator du channel.
+    """
+    provider = model_config["provider"]
+    base_url, token = provider["base_url"], provider.get("token")
+    dur = max(5.0, min(15.0, float(seconds or 5)))
+    if task is None:
+        task = "ref2va" if ref_url else "t2va"
+    conditions = []
+    if ref_url:
+        if task == "fl2va":
+            conditions = [{"type": "image", "uri": ref_url, "role": "keyframe", "frame_index": 0}]
+        else:                                          # ref2va : référence d'identité (pas de frame_index)
+            conditions = [{"type": "image", "uri": ref_url, "role": "reference"}]
+    short_edge = SGLANG_SHORT_EDGE.get(resolve_model_skill(model_config), 768)
+    payload = {
+        "model": model_config["model_name"],
+        "prompt": prompt,
+        "seconds": int(round(dur)),
+        "task": task,
+        "conditions": conditions,
+        "target": {"short_edge": short_edge, "aspect_ratio": aspect_ratio, "duration_seconds": dur},
+        "num_outputs_per_prompt": 1,
+        "num_inference_steps": int(num_inference_steps),
+        "flow_shift": float(flow_shift),
+        "audio_flow_shift": float(audio_flow_shift),
+        "seed": int(seed),
+    }
+    return sglang_video_client.generate(base_url, token, payload, dest)
+
+
+def _minimax_image_size(aspect_ratio: str = RATIO, short_edge: int = 768) -> str:
+    """`aspect_ratio` (ex. '9:16') -> 'WxH' calé sur `short_edge` (défaut 768)."""
+    try:
+        a, b = (int(x) for x in aspect_ratio.split(":"))
+    except Exception:
+        a, b = 9, 16
+    if a <= b:                                          # portrait / carré : le petit côté = largeur
+        w, h = short_edge, round(short_edge * b / a)
+    else:                                               # paysage : le petit côté = hauteur
+        w, h = round(short_edge * a / b), short_edge
+    snap = lambda x: max(32, int(round(x / 32)) * 32)   # dims multiples de 32 (contrainte diffusion)
+    return f"{snap(w)}x{snap(h)}"
+
+
+def generate_minimax_image(
+    prompt: str,
+    dest: str,
+    model_config: dict,
+    *,
+    aspect_ratio: str = RATIO,
+    seed: int = None,
+    num_inference_steps: int = 9,
+) -> str:
+    """Génère une image (avatar / 1re frame) -> chemin local. NB : MiniMax-H3 ne fait PAS de
+    text->image sur la partition ref2va (l'endpoint image de SGLang ne fixe pas de `task` et ref2va
+    exige une référence). On délègue donc au t2i du rôle `image_generator` du channel (FLUX/SD3.5 via
+    DeepInfra, cf. text_to_image). `seed`/`num_inference_steps` non exposés par ce backend -> ignorés."""
+    return text_to_image(prompt, dest, size=_minimax_image_size(aspect_ratio), model_config=model_config)
+
+
+def edit_minimax_image(
+    prompt: str,
+    image_path: str,
+    dest: str,
+    model_config: dict,
+    *,
+    mask_path: str = None,
+    seed: int = None,
+    num_inference_steps: int = 9,
+) -> str:
+    """Édite/retouche une image -> chemin local. Même raison que generate_minimax_image : on passe par
+    le rôle `image_generator` (IMAGE_EDIT_MODEL, OpenAI images.edit — FLUX Kontext / Qwen-Image-Edit),
+    pas par H3. `mask_path`/`seed`/`num_inference_steps` non exposés par ce backend -> ignorés."""
+    rgb = os.path.join(os.path.dirname(dest) or ".", "_edit_src_rgb.png")
+    to_rgb(image_path, rgb)
+    client = _image_client(model_config)
+    resp = client.images.edit(model=IMAGE_EDIT_MODEL, image=open(rgb, "rb"), prompt=prompt, n=1,
+                              size="1024x1024")
+    with open(dest, "wb") as f:
+        f.write(base64.b64decode(resp.data[0].b64_json))
+    return dest
+
+
 def generate_broll(
     shot: str,
     duration: int,

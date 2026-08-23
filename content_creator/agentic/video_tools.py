@@ -25,6 +25,9 @@ from content_creator.agentic.capabilities import (
     OUTPUT_DIR, SEED_BASE, TALKING_SEED, PRUNA_MOVEMENT, BACKGROUND_TEMPLATE,
     sh, download, upload_public, ffprobe_duration,
     synthesize_audio, generate_lipsync, generate_broll,
+    generate_minimax_video as _cap_minimax_video,
+    generate_minimax_image as _cap_minimax_image,
+    edit_minimax_image as _cap_minimax_edit,
     reframe_vertical, concat_clips, prepare_scene_portrait,
     fetch_web_image, is_image_path, image_to_clip,
     elevenlabs_forced_alignment, words_to_srt, burn_subtitles,
@@ -395,6 +398,109 @@ def generate_video(session: VideoSession, prompt: str, reference_image: str = No
     }
     path = sglang_video_client.generate(base_url, provider.get("token") or "", payload, dest)
     return {"status": "ok", "video": path, "seconds": dur}
+
+
+# ========================
+# TOOLS — MiniMax-H3 NATIF (l'audio est GÉNÉRÉ par le modèle : aucun TTS, aucun lip-sync)
+# ========================
+@tool({
+    "name": "generate_minimax_video",
+    "description": "Generate ONE audiovisual clip with MiniMax-H3: the MODEL generates the VIDEO "
+                   "AND ITS AUDIO in a single pass (spoken lines + soundscape come FROM the prompt — "
+                   "NO TTS, NO lip-sync). Renders IMMEDIATELY and RETURNS the local .mp4 path (native "
+                   "audio kept). Pass a `character` (or `reference_image`) to send an AVATAR: by default "
+                   "it is used as an IDENTITY reference (ref2va) — the model preserves the person and "
+                   "frames freely. Write the prompt following the H3 prompt-writing skill (English, with "
+                   "the dialogue and the soundscape).",
+    "parameters": {"type": "object", "properties": {
+        "prompt": {"type": "string", "description": "H3-structured video prompt (English): scene, action, "
+                   "camera, and the SPOKEN LINES + soundscape the model must generate as audio."},
+        "reference_image": {"type": "string", "description": "Optional: URL/path of an avatar or reference "
+                            "image (publicly reachable by the video server). Sent as an identity reference (ref2va)."},
+        "task": {"type": "string", "enum": ["t2va", "ref2va", "fl2va"], "description": "Optional: t2va "
+                 "(text only), ref2va (avatar = identity reference, default with an avatar), fl2va (avatar "
+                 "= exact first frame). Default: ref2va if an avatar is given, else t2va."},
+        "seconds": {"type": "integer", "description": "Clip duration in seconds (5-15). Default 5."},
+        "aspect_ratio": {"type": "string", "description": "Optional: 9:16 (default), 16:9, 1:1, 4:3, 3:4, 21:9."},
+        "num_inference_steps": {"type": "integer", "description": "Optional: denoising steps. Default 9 (rapid LoRA)."},
+        **_CHARACTER_PROP,
+    }, "required": ["prompt"]},
+})
+def generate_minimax_video(session: VideoSession, prompt: str, reference_image: str = None,
+                           task: str = None, seconds: int = 5, aspect_ratio: str = "9:16",
+                           num_inference_steps: int = 9, character: str = None) -> dict:
+    """Rend un clip audiovisuel MiniMax-H3 (audio natif) et renvoie le chemin du MP4."""
+    mc = (session.models or {}).get("video_generator") or {}
+    if not (mc.get("provider") or {}).get("base_url"):
+        return {"status": "error", "error": "no video engine configured (set the video_generator "
+                "provider on the channel, e.g. MiniMax-H3 at http://localhost:30010)"}
+    _, char = _resolve_character(session, character)
+    ref = reference_image or char.get("portrait_url")
+    idx = session.clip_no
+    session.clip_no += 1
+    dest = os.path.join(session.output_dir, f"minimax_{idx + 1}.mp4")
+    path = _cap_minimax_video(
+        prompt=prompt, dest=dest, model_config=mc,
+        seconds=seconds, seed=SEED_BASE + idx, ref_url=ref, task=task,
+        aspect_ratio=aspect_ratio, num_inference_steps=num_inference_steps,
+    )
+    return {"status": "ok", "video": path, "seconds": max(5, min(15, int(seconds or 5))),
+            "task": task or ("ref2va" if ref else "t2va"), "character": character}
+
+
+@tool({
+    "name": "generate_minimax_image",
+    "description": "Generate an IMAGE (text-to-image), e.g. to create an AVATAR or a first frame, then "
+                   "feed it to generate_minimax_video via `reference_image`. Renders immediately and "
+                   "returns the local path + a public url. Write the prompt in English. (Uses the "
+                   "channel's image engine — MiniMax-H3 itself does not do standalone text-to-image.)",
+    "parameters": {"type": "object", "properties": {
+        "prompt": {"type": "string", "description": "What the image shows (English, detailed)."},
+        "aspect_ratio": {"type": "string", "description": "Optional: 9:16 (default), 16:9, 1:1, 4:3, 3:4."},
+    }, "required": ["prompt"]},
+})
+def generate_minimax_image_tool(session: VideoSession, prompt: str, aspect_ratio: str = "9:16") -> dict:
+    mc = (session.models or {}).get("image_generator") or {}   # t2i engine (FLUX/SD3.5); global DeepInfra key if absent
+    idx = session.clip_no
+    session.clip_no += 1
+    dest = os.path.join(session.output_dir, f"minimax_img_{idx + 1}.png")
+    _cap_minimax_image(prompt=prompt, dest=dest, model_config=mc,
+                       aspect_ratio=aspect_ratio, seed=SEED_BASE + idx)
+    try:
+        url = upload_public(session.ctx.gcs, dest, f"media/test/minimax_img_{idx + 1}.png")
+    except Exception as e:
+        return {"status": "ok", "local_path": dest, "url": None,
+                "note": f"image generated locally but public upload failed ({e}); usable as a local "
+                        "reference_image only if the video server can reach this path."}
+    return {"status": "ok", "local_path": dest, "url": url,
+            "note": "pass `url` as `reference_image` of generate_minimax_video."}
+
+
+@tool({
+    "name": "edit_minimax_image",
+    "description": "Edit / retouch an existing image (image edit), e.g. to adjust an avatar or produce a "
+                   "variation. `source` = a local path or URL. Returns the local path + a public url of "
+                   "the edited image. (Uses the channel's image-edit engine, not MiniMax-H3.)",
+    "parameters": {"type": "object", "properties": {
+        "source": {"type": "string", "description": "Local path or URL of the image to edit."},
+        "prompt": {"type": "string", "description": "The edit to apply (English)."},
+    }, "required": ["source", "prompt"]},
+})
+def edit_minimax_image_tool(session: VideoSession, source: str, prompt: str) -> dict:
+    mc = (session.models or {}).get("image_generator") or {}   # image-edit engine (FLUX Kontext/Qwen); global key if absent
+    idx = session.clip_no
+    session.clip_no += 1
+    local_src = source if os.path.exists(source) else download(source, os.path.join(
+        session.output_dir, f"minimax_edit_src_{idx + 1}"))
+    dest = os.path.join(session.output_dir, f"minimax_edit_{idx + 1}.png")
+    _cap_minimax_edit(prompt=prompt, image_path=local_src, dest=dest, model_config=mc,
+                      seed=SEED_BASE + idx)
+    try:
+        url = upload_public(session.ctx.gcs, dest, f"media/test/minimax_edit_{idx + 1}.png")
+    except Exception as e:
+        return {"status": "ok", "local_path": dest, "url": None, "note": f"public upload failed ({e})"}
+    return {"status": "ok", "local_path": dest, "url": url,
+            "note": "pass `url` as `reference_image` of generate_minimax_video."}
 
 
 # ========================
