@@ -584,6 +584,19 @@ wheels = [
 ]
 
 [[package]]
+name = "linkup-sdk"
+version = "0.21.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0f/32/5ce9b7fe2f01dded04006fb8063cf58623b40353676985f66a0bf527677f/linkup_sdk-0.21.0.tar.gz", hash = "sha256:c60c92d5fae51556517eff8295aeda2f2af62cee4457393435d79b1913b147e1", size = 195814, upload-time = "2026-08-18T16:36:38.904Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/28/e9/c794cb2c3f574c935c9e589d0321f276b4e1ee191bf29f76ec4f1a1cdeba/linkup_sdk-0.21.0-py3-none-any.whl", hash = "sha256:88758643968421df70369ea92c3910bdc40171296838d854d35f213e45b60488", size = 21675, upload-time = "2026-08-18T16:36:37.824Z" },
+]
+
+[[package]]
 name = "mutagen"
 version = "1.48.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1100,6 +1113,7 @@ dependencies = [
     { name = "bs4" },
     { name = "google-cloud-storage" },
     { name = "google-genai" },
+    { name = "linkup-sdk" },
     { name = "mutagen" },
     { name = "openai" },
     { name = "pandas" },
@@ -1123,6 +1137,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'panel'", specifier = ">=0.115.0,<1.0.0" },
     { name = "google-cloud-storage", specifier = ">=3.3.1,<4.0.0" },
     { name = "google-genai", specifier = ">=1.47.0,<2.0.0" },
+    { name = "linkup-sdk", specifier = ">=0.21.0" },
     { name = "mutagen", specifier = ">=1.47.0,<2.0.0" },
     { name = "openai", specifier = ">=1.103.0,<2.0.0" },
     { name = "pandas", specifier = ">=2.3.2,<3.0.0" },

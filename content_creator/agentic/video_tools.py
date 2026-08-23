@@ -547,6 +547,75 @@ def scrape_article(session: VideoSession) -> dict:
     return {"status": "error", "error": "all articles already treated"}
 
 
+# Longueur max du markdown renvoyé au master (garde le contexte gérable). Réglable via l'env.
+_LINKUP_MAX_CHARS = int(os.getenv("LINKUP_MAX_CHARS", "12000"))
+
+
+def _linkup_api_key() -> str:
+    """Clé Linkup : provider `linkup` (renseigné depuis le front, stocké durablement),
+    sinon repli sur l'env LINKUP_API_KEY."""
+    try:
+        from content_creator.config.providers import get_provider
+        key = get_provider("linkup").api_key
+        if key:
+            return key
+    except Exception:
+        pass
+    return os.getenv("LINKUP_API_KEY", "")
+
+
+@tool({
+    "name": "fetch_url",
+    "description": "Scrapes ANY web page URL via Linkup and returns its CLEANED content as markdown "
+                   "(the boilerplate — nav, ads, footers — is stripped). Use it to read a specific "
+                   "page you know the URL of (an article, a product page, a doc): pass the `url` and "
+                   "you get back readable text to base a `write_script` / your shots on. "
+                   "Set `extract_images=true` to also get a list of images found on the page (with their "
+                   "url + alt text) that you can reuse as a `reference_image`/`source`. "
+                   "Set `render_js=true` for pages that need JavaScript to render their content.",
+    "parameters": {"type": "object", "properties": {
+        "url": {"type": "string", "description": "The full URL of the page to scrape (e.g. "
+                "'https://example.com/article')."},
+        "render_js": {"type": "boolean", "description": "Optional: render the page's JavaScript before "
+                      "extracting (slower). Use for SPA / dynamic pages that come back empty. Default false."},
+        "extract_images": {"type": "boolean", "description": "Optional: also return the images found on "
+                           "the page (url + alt text). Default false."},
+    }, "required": ["url"]},
+})
+def fetch_url(session: VideoSession, url: str, render_js: bool = False,
+              extract_images: bool = False) -> dict:
+    """Scrape une page via Linkup et renvoie son markdown nettoyé (+ images optionnelles).
+    Clé API : provider `linkup` (renseignable depuis le front), repli env LINKUP_API_KEY."""
+    api_key = _linkup_api_key()
+    if not api_key:
+        return {"status": "error", "error": "no Linkup API key configured (set the `linkup` provider's "
+                "api_key from the control panel, or LINKUP_API_KEY in .env)"}
+    try:
+        from linkup import LinkupClient
+    except ImportError:
+        return {"status": "error", "error": "linkup-sdk not installed (run `uv add linkup-sdk`)"}
+
+    client = LinkupClient(api_key=api_key)
+    resp = client.fetch(
+        url=url,
+        mode="standard",
+        include_raw_html=False,
+        render_js=render_js,
+        extract_images=extract_images,
+    )
+    markdown = resp.markdown or ""
+    result = {
+        "status": "ok",
+        "url": url,
+        "text": markdown[:_LINKUP_MAX_CHARS],
+        "length": len(markdown),
+        "truncated": len(markdown) > _LINKUP_MAX_CHARS,
+    }
+    if extract_images and resp.images:
+        result["images"] = [{"url": img.url, "alt": img.alt} for img in resp.images]
+    return result
+
+
 # ========================
 # TOOLS — recherche d'image web
 # ========================

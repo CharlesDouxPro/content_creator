@@ -59,6 +59,12 @@ DEFAULT_PROVIDERS: dict[str, Provider] = {
         base_url="https://api.elevenlabs.io",
         api_key=os.getenv("ELEVENLABS_API_KEY", ""),
     ),
+    # Scraping / fetch d'URL (tool fetch_url). Le SDK Linkup gère son propre endpoint :
+    # base_url purement informatif, seule api_key est utilisée. Renseignable depuis le front.
+    "linkup": Provider(
+        base_url="https://api.linkup.so/v1",
+        api_key=str(API_KEYS.get("linkup_api_key") or ""),
+    ),
     "ltx_local": Provider(
         base_url=str(VIDEO_BACKEND_CONFIG["ltx_server_url"]),
         api_key="",
@@ -135,13 +141,19 @@ def _write_gcs(text: str) -> None:
 # API publique.
 # ---------------------------------------------------------------------------
 def load_providers() -> dict[str, Provider]:
-    """GCS d'abord (durable), sinon fichier local, sinon défauts env."""
+    """GCS d'abord (durable), sinon fichier local, sinon défauts env.
+
+    Les providers par DÉFAUT absents du stockage sont ajoutés (la valeur stockée prime
+    toujours) : un nouveau provider par défaut (ex. `linkup`) apparaît ainsi automatiquement
+    sans écraser ce qui est déjà renseigné."""
     data = _read_gcs()
     if data is None:
         data = _read_local()
     if data is None:
         return {name: p.model_copy() for name, p in DEFAULT_PROVIDERS.items()}
-    return {name: Provider.model_validate(cfg) for name, cfg in data.items()}
+    providers = {name: p.model_copy() for name, p in DEFAULT_PROVIDERS.items()}
+    providers.update({name: Provider.model_validate(cfg) for name, cfg in data.items()})
+    return providers
 
 
 def save_providers(providers: dict[str, Provider]) -> None:

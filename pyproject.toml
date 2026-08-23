@@ -19,6 +19,7 @@ dependencies = [
     "runwayml>=3.22.0,<4.0.0",
     "python-dotenv>=1.0.0,<2.0.0",
     "pillow>=12.2.0",
+    "linkup-sdk>=0.21.0",
 ]
 
 # Dépendances du panneau de contrôle (backend FastAPI). Install : `uv sync --extra panel`.

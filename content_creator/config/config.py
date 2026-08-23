@@ -81,6 +81,8 @@ API_KEYS = {
     # Google Custom Search API settings (for image search)
     "google_search_api_key": os.getenv("GOOGLE_SEARCH_API_KEY"),
     "google_search_cx": os.getenv("GOOGLE_SEARCH_CX"),
+    # Linkup API settings (web page scraping / fetch)
+    "linkup_api_key": os.getenv("LINKUP_API_KEY"),
     # RunwayML API settings (for video generation)
     "runway_api_key": os.getenv("RUNWAY_API_KEY"),
     "runway_concurrency_limit": 1,
