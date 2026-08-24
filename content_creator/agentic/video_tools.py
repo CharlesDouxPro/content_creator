@@ -31,6 +31,7 @@ from content_creator.agentic.capabilities import (
     reframe_vertical, concat_clips, prepare_scene_portrait,
     fetch_web_image, is_image_path, image_to_clip,
     elevenlabs_forced_alignment, words_to_srt, burn_subtitles,
+    words_to_ass, burn_ass, _probe_size,
 )
 from content_creator.config.config import VIDEO_BACKEND_CONFIG
 from content_creator.pipelines.modules import VideoGenerator, NewsScraper, FullArticle
@@ -93,6 +94,8 @@ class VideoSession:
     script: str = None                            # script écrit par le master (write_script)
     plan: list = field(default_factory=list)     # specs planifiés, dans l'ordre
     clips: list = field(default_factory=list)    # plans rendus (rempli par render_plan)
+    produced_clips: list = field(default_factory=list)  # clips rendus EN DIRECT (generate_minimax_video / generate_video), dans l'ordre — filet de finalisation si l'agent oublie assemble_video
+    subtitled: bool = False                       # True une fois add_subtitles appliqué -> évite le double-burn (auto-sous-titres de finalisation)
     fetched_images: list = field(default_factory=list)  # images web téléchargées (search_web_image) -> supprimées en fin de vidéo
     web_images: dict = field(default_factory=dict)      # {query: {local_path, url}} récupérées du web
     final_video: str = None
@@ -398,6 +401,7 @@ def generate_video(session: VideoSession, prompt: str, reference_image: str = No
         "seed": SEED_BASE + idx,
     }
     path = sglang_video_client.generate(base_url, provider.get("token") or "", payload, dest)
+    session.produced_clips.append(path)   # trace pour la finalisation de secours (cf. run_agent)
     return {"status": "ok", "video": path, "seconds": dur}
 
 
@@ -479,6 +483,7 @@ def generate_minimax_video(session: VideoSession, prompt: str, reference_image: 
         seconds=seconds, seed=TALKING_SEED if seed is None else int(seed), ref_url=ref,
         aspect_ratio=aspect_ratio, num_inference_steps=num_inference_steps,
     )
+    session.produced_clips.append(path)   # trace pour la finalisation de secours (cf. run_agent)
     return {"status": "ok", "video": path, "seconds": max(5, min(15, int(seconds or 5))),
             "task": "ref2va", "character": character}
 
@@ -813,20 +818,36 @@ def _plan_transcript(session: VideoSession) -> str:
     return " ".join(parts).strip()
 
 
+def _burn_captions(session: VideoSession, words: list) -> str:
+    """Incruste des sous-titres depuis des mots alignés [{text,start,end}] sur `session.final_video`.
+    Style par env `SUBTITLE_STYLE` : `karaoke` (défaut) = mot EN COURS colorié (.ass/libass),
+    `plain` = légendes blanches simples (.srt). Couleurs karaoké : `SUBTITLE_COLOR` (base, défaut
+    FFFFFF) et `SUBTITLE_HIGHLIGHT` (mot actif, défaut F5E003). Retourne le chemin de la vidéo finale."""
+    d = session.output_dir
+    out = os.path.join(d, "final_subtitled.mp4")
+    style = os.getenv("SUBTITLE_STYLE", "karaoke").strip().lower()
+    if style in ("karaoke", "word", "highlight", "ass"):
+        w, h = _probe_size(session.final_video)
+        ass = os.path.join(d, "subs.ass")
+        words_to_ass(words, ass, video_w=w, video_h=h,
+                     base_color=os.getenv("SUBTITLE_COLOR", "FFFFFF"),
+                     highlight_color=os.getenv("SUBTITLE_HIGHLIGHT", "F5E003"))
+        return burn_ass(session.final_video, ass, out)
+    srt = os.path.join(d, "subs.srt")
+    words_to_srt(words, srt)
+    return burn_subtitles(session.final_video, srt, out)
+
+
 def _subtitles_elevenlabs(session: VideoSession, transcript: str,
                           api_key: str, base_url: str = None) -> str:
-    """Extrait l'audio du montage -> aligne le transcript connu (ElevenLabs) -> SRT -> incruste."""
-    d = session.output_dir
-    audio = os.path.join(d, "subs_audio.wav")
-    srt = os.path.join(d, "subs.srt")
-    out = os.path.join(d, "final_subtitled.mp4")
+    """Extrait l'audio du montage -> aligne le transcript connu (ElevenLabs) -> incruste (karaoké/plain)."""
+    audio = os.path.join(session.output_dir, "subs_audio.wav")
     # Audio mono 16 kHz : format léger et suffisant pour l'alignement.
     sh(["ffmpeg", "-y", "-i", session.final_video, "-vn", "-ac", "1", "-ar", "16000", audio])
     words = elevenlabs_forced_alignment(audio, transcript, api_key, base_url)
     if not words:
         raise RuntimeError("aucun mot aligné")
-    words_to_srt(words, srt)
-    return burn_subtitles(session.final_video, srt, out)
+    return _burn_captions(session, words)
 
 
 # Modèle faster-whisper chargé UNE SEULE FOIS (coûteux) et réutilisé par tous les runs du process.
@@ -853,10 +874,7 @@ def _subtitles_whisper(session: VideoSession) -> str:
     avec timestamps AU MOT, puis SRT court + incrustation ffmpeg. Transcrit l'audio RÉEL — robuste
     même quand le transcript exact est inconnu (audio natif MiniMax-H3). `WHISPER_LANG` force la
     langue (ex. `fr`), sinon auto-détection. `vad_filter` coupe les silences pour éviter les hallus."""
-    d = session.output_dir
-    audio = os.path.join(d, "subs_audio.wav")
-    srt = os.path.join(d, "subs.srt")
-    out = os.path.join(d, "final_subtitled.mp4")
+    audio = os.path.join(session.output_dir, "subs_audio.wav")
     # Audio mono 16 kHz : format attendu par Whisper, léger.
     sh(["ffmpeg", "-y", "-i", session.final_video, "-vn", "-ac", "1", "-ar", "16000", audio])
     segments, _info = _get_whisper_model().transcribe(
@@ -867,8 +885,7 @@ def _subtitles_whisper(session: VideoSession) -> str:
              for seg in segments for w in (seg.words or []) if w.word.strip()]
     if not words:
         raise RuntimeError("faster-whisper: aucun mot transcrit")
-    words_to_srt(words, srt)
-    return burn_subtitles(session.final_video, srt, out)
+    return _burn_captions(session, words)
 
 
 @tool({
@@ -884,6 +901,7 @@ def add_subtitles(session: VideoSession) -> dict:
     try:
         out = _subtitles_whisper(session)
         session.final_video = out
+        session.subtitled = True
         return {"status": "ok", "final_video": out, "engine": "faster-whisper"}
     except Exception as e:
         print(f"[subtitles] faster-whisper KO ({e}) — repli ElevenLabs/Creatomate", flush=True)
@@ -897,6 +915,7 @@ def add_subtitles(session: VideoSession) -> dict:
         try:
             out = _subtitles_elevenlabs(session, transcript, api_key, voice_prov.get("base_url"))
             session.final_video = out
+            session.subtitled = True
             return {"status": "ok", "final_video": out, "engine": "elevenlabs"}
         except Exception as e:
             print(f"[subtitles] ElevenLabs KO ({e}) — repli Creatomate", flush=True)
@@ -913,6 +932,7 @@ def add_subtitles(session: VideoSession) -> dict:
     out = os.path.join(session.output_dir, "final_subtitled.mp4")
     download(str(final.url), out)
     session.final_video = out
+    session.subtitled = True
     return {"status": "ok", "final_video": out, "engine": "creatomate"}
 
 

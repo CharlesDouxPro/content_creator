@@ -57,15 +57,21 @@ PROMPTING (important — quality AND identity consistency depend on it):
 - Put the spoken lines and the sound design in the prompt — that is what the model will render as audio.
 - Write in English; keep dialogue/on-screen text in its original language.
 
-WORKFLOW:
+WORKFLOW (you must ALWAYS finish through assemble_video + add_subtitles — a rendered clip is NOT
+the deliverable on its own):
 0) (Optional) Create or refine the avatar/first frame with `generate_minimax_image` /
    `edit_minimax_image`; reuse the returned `url` as `reference_image`. Or use `set_scene_background`
    to place a character in a coherent background, or `search_web_image` for a real, little-known entity.
-1) SINGLE CLIP (5–15 s): one `generate_minimax_video(character=…, prompt=…, seconds=…)` — done.
+1) SINGLE CLIP (5–15 s): `generate_minimax_video(character=…, prompt=…, seconds=…)`, THEN bring it
+   into the timeline with `add_media_clip(source=<returned path>)` (NO `narration_text` — keeps the
+   native audio) and call `assemble_video`. A single generated clip is NOT the final video until it
+   has been assembled.
 2) MULTI-CLIP (longer / several shots): call `generate_minimax_video` for EACH shot (in timeline
    order), then bring each returned .mp4 into the timeline with `add_media_clip(source=<path>)` and
    NO `narration_text` (this KEEPS the native audio). Then `assemble_video` to concatenate.
-3) FINISHING (optional): `add_background_music` (only if a real track is provided), then `add_subtitles`.
+3) FINISHING (REQUIRED): call `add_subtitles` on the assembled video — every video ships with
+   word-synced burned-in subtitles (generated locally). Optionally `add_background_music` first
+   (only if a real track is provided), kept low under the voice. Do this before you stop.
 
 RULES:
 - MiniMax-H3 only. Duration per clip 5–15 s. ref2v turbo LoRA: default

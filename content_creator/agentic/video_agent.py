@@ -295,15 +295,37 @@ def run_agent(content: str = None, skill_name: str = "avatar_story",
                 messages.append({"role": "tool", "tool_call_id": tc.id,
                                  "content": json.dumps(result, ensure_ascii=False)})
 
-        # FILET DE SÉCURITÉ : l'agent s'est arrêté (ou a épuisé max_steps) avec des plans
-        # planifiés mais SANS produire de vidéo finale (oubli d'assemble_video, ou détournement
-        # de retry_plan). On assemble automatiquement pour ne pas perdre le travail.
+        # FILET DE SÉCURITÉ : l'agent s'est arrêté (ou a épuisé max_steps) SANS produire de vidéo
+        # finale (oubli d'assemble_video, clip unique laissé tel quel...). On finalise pour ne pas
+        # perdre le travail. Deux cas :
+        #  - des plans planifiés (add_talking/broll/media_clip) mais pas assemblés -> assemble_video.
+        #  - des clips rendus EN DIRECT (generate_minimax_video / generate_video) jamais mis dans la
+        #    timeline -> on les injecte via add_media_clip (audio natif préservé) puis on assemble.
+        if session.final_video is None and not session.plan and session.produced_clips:
+            print(f"⚠️ {len(session.produced_clips)} clip(s) rendu(s) en direct non assemblé(s) — "
+                  "injection automatique dans la timeline.", flush=True)
+            for src in session.produced_clips:
+                dispatch(session, "add_media_clip", {"source": src})
         if session.final_video is None and session.plan:
             print("⚠️ assemble_video non appelé par l'agent — assemblage automatique de secours.", flush=True)
             t0 = tracer.on_tool_call("assemble_video", {"auto": True})
             result = dispatch(session, "assemble_video", {})
             ok = result.get("status") == "ok"
             tracer.on_tool_result("assemble_video", ok,
+                                  str(result.get("final_video") or result.get("error")),
+                                  (time.time() - t0) * 1000)
+
+        # SOUS-TITRES AUTO (best-effort) : ces vidéos sociales verticales veulent des sous-titres.
+        # Si une vidéo finale existe mais n'a pas été sous-titrée par l'agent, on les incruste
+        # (faster-whisper local). Non bloquant : un échec conserve la vidéo non sous-titrée.
+        # Désactivable par AUTO_SUBTITLES=0.
+        if (session.final_video and not session.subtitled
+                and os.getenv("AUTO_SUBTITLES", "1") != "0"):
+            print("📝 add_subtitles non appelé par l'agent — sous-titrage automatique (local).", flush=True)
+            t0 = tracer.on_tool_call("add_subtitles", {"auto": True})
+            result = dispatch(session, "add_subtitles", {})
+            ok = result.get("status") == "ok"
+            tracer.on_tool_result("add_subtitles", ok,
                                   str(result.get("final_video") or result.get("error")),
                                   (time.time() - t0) * 1000)
     finally:
