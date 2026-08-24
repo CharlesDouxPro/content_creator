@@ -422,13 +422,14 @@ def generate_video(session: VideoSession, prompt: str, reference_image: str = No
                  "= exact first frame). Default: ref2va if an avatar is given, else t2va."},
         "seconds": {"type": "integer", "description": "Clip duration in seconds (5-15). Default 5."},
         "aspect_ratio": {"type": "string", "description": "Optional: 9:16 (default), 16:9, 1:1, 4:3, 3:4, 21:9."},
-        "num_inference_steps": {"type": "integer", "description": "Optional: denoising steps. Default 9 (rapid LoRA)."},
+        "num_inference_steps": {"type": "integer", "description": "Optional: sigma grid points (evals = "
+                                "steps-1). Default 5 for the 4-step ref2v turbo LoRA. Leave as-is."},
         **_CHARACTER_PROP,
     }, "required": ["prompt"]},
 })
 def generate_minimax_video(session: VideoSession, prompt: str, reference_image: str = None,
                            task: str = None, seconds: int = 5, aspect_ratio: str = "9:16",
-                           num_inference_steps: int = 9, character: str = None) -> dict:
+                           num_inference_steps: int = 5, character: str = None) -> dict:
     """Rend un clip audiovisuel MiniMax-H3 (audio natif) et renvoie le chemin du MP4."""
     mc = (session.models or {}).get("video_generator") or {}
     if not (mc.get("provider") or {}).get("base_url"):

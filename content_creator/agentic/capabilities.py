@@ -936,7 +936,7 @@ def generate_minimax_video(
     ref_url: str = None,
     task: str = None,
     aspect_ratio: str = RATIO,
-    num_inference_steps: int = 9,
+    num_inference_steps: int = 5,
     flow_shift: float = 12.0,
     audio_flow_shift: float = 3.0,
 ) -> str:
@@ -944,7 +944,8 @@ def generate_minimax_video(
 
     `task` auto : `ref2va` si `ref_url` (avatar = référence d'identité, cadrage libre), sinon
     `t2va`. `fl2va` (avatar = 1re frame) reste sélectionnable explicitement. `num_inference_steps`
-    par défaut = 9 (LoRA rapide). base_url/token = provider du rôle video_generator du channel.
+    = points de grille sigma (zéro terminal inclus) => évaluations = steps-1. Défaut 5 pour le LoRA
+    turbo ref2v 4-step (4 évaluations). base_url/token = provider du rôle video_generator du channel.
     """
     provider = model_config["provider"]
     base_url, token = provider["base_url"], provider.get("token")

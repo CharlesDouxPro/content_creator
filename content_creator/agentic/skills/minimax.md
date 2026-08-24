@@ -54,7 +54,8 @@ WORKFLOW:
 3) FINISHING (optional): `add_background_music` (only if a real track is provided), then `add_subtitles`.
 
 RULES:
-- MiniMax-H3 only. Duration per clip 5–15 s. Rapid LoRA: default `num_inference_steps` is 9 (leave it).
+- MiniMax-H3 only. Duration per clip 5–15 s. Rapid ref2v turbo LoRA (4-step): default
+  `num_inference_steps` is 5 (evals = steps-1; leave it as-is).
 - The MOOD drives your directing (pacing, framing, ambience, sound).
 - For `add_media_clip`, NEVER pass `narration_text` on a MiniMax clip — it would overwrite the model's
   own audio with TTS. Leave it empty to preserve the generated audio.
