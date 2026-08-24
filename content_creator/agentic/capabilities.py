@@ -548,9 +548,9 @@ def _srt_ts(t: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def words_to_srt(words: list[dict], out_path: str, max_chars: int = 24,
-                 max_dur: float = 1.6, max_gap: float = 0.6) -> str:
-    """Regroupe les mots alignés en légendes COURTES et punchy (format social) -> fichier .srt.
+def _group_captions(words: list[dict], max_chars: int = 24,
+                    max_dur: float = 1.6, max_gap: float = 0.6) -> list[list[dict]]:
+    """Regroupe les mots alignés en légendes COURTES et punchy (format social).
     Coupe sur : trop de caractères, légende trop longue, gros silence, ou ponctuation forte."""
     captions, cur = [], []
     for w in words:
@@ -564,12 +564,90 @@ def words_to_srt(words: list[dict], out_path: str, max_chars: int = 24,
         cur.append(w)
     if cur:
         captions.append(cur)
+    return captions
+
+
+def words_to_srt(words: list[dict], out_path: str, max_chars: int = 24,
+                 max_dur: float = 1.6, max_gap: float = 0.6) -> str:
+    """Mots alignés -> fichier .srt (légendes courtes, MAJUSCULES). Pas de coloration au mot
+    (le SRT ne la permet pas) : pour le karaoké mot-à-mot, cf. `words_to_ass`."""
+    captions = _group_captions(words, max_chars, max_dur, max_gap)
     blocks = []
     for i, cap in enumerate(captions, 1):
         text = " ".join(x["text"] for x in cap).strip().upper()
         blocks.append(f"{i}\n{_srt_ts(cap[0]['start'])} --> {_srt_ts(cap[-1]['end'])}\n{text}\n")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(blocks))
+    return out_path
+
+
+def _ass_ts(t: float) -> str:
+    """Secondes -> timecode ASS 'H:MM:SS.cc' (centisecondes)."""
+    t = max(0.0, t)
+    h, rem = divmod(int(t), 3600)
+    m, s = divmod(rem, 60)
+    cs = int(round((t - int(t)) * 100))
+    if cs >= 100:
+        s += 1
+        cs = 0
+    return f"{h:d}:{m:02d}:{s:02d}.{cs:02d}"
+
+
+def _hex_to_ass(hex_color: str) -> str:
+    """'RRGGBB' (ou '#RRGGBB') -> couleur ASS '&H00BBGGRR' (alpha 00 = opaque, ordre BGR)."""
+    h = (hex_color or "").lstrip("#").strip()
+    if len(h) != 6:
+        h = "FFFFFF"
+    r, g, b = h[0:2], h[2:4], h[4:6]
+    return f"&H00{b}{g}{r}".upper()
+
+
+def words_to_ass(words: list[dict], out_path: str, video_w: int = 720, video_h: int = 1280,
+                 base_color: str = "FFFFFF", highlight_color: str = "F5E003",
+                 max_chars: int = 16, max_dur: float = 1.6, max_gap: float = 0.6) -> str:
+    """Mots alignés -> fichier .ass KARAOKÉ : le mot EN COURS de prononciation est colorié
+    (`highlight_color`), le reste de la légende reste en `base_color`. Un event par mot (timings
+    au mot de faster-whisper / ElevenLabs). Style social : gras, gros, contour noir, bas-centre,
+    tailles proportionnelles à la hauteur vidéo. Incruster avec `burn_ass` (libass)."""
+    base, hl = _hex_to_ass(base_color), _hex_to_ass(highlight_color)
+    fontsize = max(24, round(video_h * 0.05))
+    outline = max(2, round(video_h * 0.004))
+    margin_v = round(video_h * 0.12)
+    caps = _group_captions(words, max_chars, max_dur, max_gap)
+    header = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        "WrapStyle: 2",
+        f"PlayResX: {video_w}",
+        f"PlayResY: {video_h}",
+        "ScaledBorderAndShadow: yes",
+        "",
+        "[V4+ Styles]",
+        ("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
+         "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
+         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"),
+        (f"Style: Default,Arial,{fontsize},{base},{base},&H00000000,&H00000000,-1,0,0,0,"
+         f"100,100,0,0,1,{outline},0,2,40,40,{margin_v},1"),
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, Effect, Text",
+    ]
+    events = []
+    for cap in caps:
+        cap_end = cap[-1]["end"]
+        upwords = [w["text"].strip().upper().replace("{", "(").replace("}", ")") for w in cap]
+        for i, w in enumerate(cap):
+            seg_start = w["start"]
+            seg_end = cap[i + 1]["start"] if i + 1 < len(cap) else cap_end
+            if seg_end <= seg_start:
+                seg_end = seg_start + 0.05
+            parts = [(f"{{\\c{hl}&}}{wd}{{\\c{base}&}}" if j == i else wd)
+                     for j, wd in enumerate(upwords)]
+            # Champs (8 avant Text) : Layer,Start,End,Style,Name,MarginL,MarginR,Effect,Text.
+            events.append(f"Dialogue: 0,{_ass_ts(seg_start)},{_ass_ts(seg_end)},"
+                          f"Default,,0,0,,{' '.join(parts)}")
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(header + events) + "\n")
     return out_path
 
 
@@ -586,6 +664,26 @@ def burn_subtitles(video_in: str, srt_path: str, out: str,
         "-vf", f"subtitles='{esc}':force_style='{style}'",
         "-c:a", "copy", out])
     return out
+
+
+def burn_ass(video_in: str, ass_path: str, out: str) -> str:
+    """Incruste un fichier .ass (libass) — porte son propre style (police, couleurs, karaoké au
+    mot). Utilisé pour les sous-titres à mot colorié (cf. `words_to_ass`). Requiert un ffmpeg avec
+    libass (le résolveur route vers `ffmpeg-full` au besoin, cf. _resolve_ffmpeg_bin)."""
+    esc = ass_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    sh(["ffmpeg", "-y", "-i", video_in, "-vf", f"ass='{esc}'", "-c:a", "copy", out])
+    return out
+
+
+def _probe_size(path: str) -> tuple[int, int]:
+    """(largeur, hauteur) en px du 1er flux vidéo, via ffprobe. Défaut (720, 1280) si indisponible."""
+    try:
+        p = sh(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", path])
+        w, h = p.stdout.strip().split("x")[:2]
+        return int(w), int(h)
+    except Exception:
+        return 720, 1280
 
 
 def concat_clips(clips: list, out: str) -> str:
