@@ -829,6 +829,48 @@ def _subtitles_elevenlabs(session: VideoSession, transcript: str,
     return burn_subtitles(session.final_video, srt, out)
 
 
+# Modèle faster-whisper chargé UNE SEULE FOIS (coûteux) et réutilisé par tous les runs du process.
+_WHISPER_MODEL = None
+
+
+def _get_whisper_model():
+    """Charge (à la 1re demande, puis met en cache) le modèle faster-whisper LOCAL — aucune API.
+    Réglable par env : WHISPER_MODEL (défaut `large-v3`, meilleure qualité FR ; `large-v3-turbo`
+    plus rapide), WHISPER_DEVICE (défaut `cpu`), WHISPER_COMPUTE (défaut `int8` — rapide/léger CPU)."""
+    global _WHISPER_MODEL
+    if _WHISPER_MODEL is None:
+        from faster_whisper import WhisperModel
+        _WHISPER_MODEL = WhisperModel(
+            os.getenv("WHISPER_MODEL", "large-v3"),
+            device=os.getenv("WHISPER_DEVICE", "cpu"),
+            compute_type=os.getenv("WHISPER_COMPUTE", "int8"),
+        )
+    return _WHISPER_MODEL
+
+
+def _subtitles_whisper(session: VideoSession) -> str:
+    """Sous-titres 100% LOCAUX (faster-whisper, aucune API) : extrait l'audio du montage, transcrit
+    avec timestamps AU MOT, puis SRT court + incrustation ffmpeg. Transcrit l'audio RÉEL — robuste
+    même quand le transcript exact est inconnu (audio natif MiniMax-H3). `WHISPER_LANG` force la
+    langue (ex. `fr`), sinon auto-détection. `vad_filter` coupe les silences pour éviter les hallus."""
+    d = session.output_dir
+    audio = os.path.join(d, "subs_audio.wav")
+    srt = os.path.join(d, "subs.srt")
+    out = os.path.join(d, "final_subtitled.mp4")
+    # Audio mono 16 kHz : format attendu par Whisper, léger.
+    sh(["ffmpeg", "-y", "-i", session.final_video, "-vn", "-ac", "1", "-ar", "16000", audio])
+    segments, _info = _get_whisper_model().transcribe(
+        audio, language=os.getenv("WHISPER_LANG") or None,
+        word_timestamps=True, vad_filter=True,
+    )
+    words = [{"text": w.word.strip(), "start": w.start, "end": w.end}
+             for seg in segments for w in (seg.words or []) if w.word.strip()]
+    if not words:
+        raise RuntimeError("faster-whisper: aucun mot transcrit")
+    words_to_srt(words, srt)
+    return burn_subtitles(session.final_video, srt, out)
+
+
 @tool({
     "name": "add_subtitles",
     "description": "Burns word-synced subtitles onto the final video. Call it AFTER assemble_video.",
@@ -837,8 +879,17 @@ def _subtitles_elevenlabs(session: VideoSession, transcript: str,
 def add_subtitles(session: VideoSession) -> dict:
     if not session.final_video:
         return {"status": "error", "error": "call assemble_video first"}
-    # 1) ElevenLabs Forced Alignment (défaut) : le transcript est l'input TTS EXACT -> calage au mot
-    # parfait, sans transcription. Clé = provider voice_generator du channel, sinon .env.
+    # 1) LOCAL par défaut : faster-whisper (AUCUNE API). Transcrit l'audio réel -> timestamps au mot.
+    # Marche pour le TTS comme pour l'audio natif MiniMax-H3. Réglable par env WHISPER_* .
+    try:
+        out = _subtitles_whisper(session)
+        session.final_video = out
+        return {"status": "ok", "final_video": out, "engine": "faster-whisper"}
+    except Exception as e:
+        print(f"[subtitles] faster-whisper KO ({e}) — repli ElevenLabs/Creatomate", flush=True)
+
+    # 2) Repli : ElevenLabs Forced Alignment (API) — le transcript est l'input TTS EXACT -> calage
+    # au mot parfait. Clé = provider voice_generator du channel, sinon .env.
     transcript = _plan_transcript(session)
     voice_prov = (session.voice or {}).get("provider") or {}
     api_key = voice_prov.get("token") or os.getenv("ELEVENLABS_API_KEY")
@@ -850,7 +901,7 @@ def add_subtitles(session: VideoSession) -> dict:
         except Exception as e:
             print(f"[subtitles] ElevenLabs KO ({e}) — repli Creatomate", flush=True)
 
-    # 2) Repli : Creatomate (auto-transcription) — inchangé.
+    # 3) Repli : Creatomate (auto-transcription) — inchangé.
     url = upload_public(session.ctx.gcs, session.final_video, "media/test/final_for_subs.mp4")
     vg = VideoGenerator()
     resp = vg.add_subtitles(url)

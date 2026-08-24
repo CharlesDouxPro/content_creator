@@ -98,8 +98,35 @@ class Ctx:
 # ========================
 # TRANSPORT
 # ========================
+def _resolve_ffmpeg_bin(name: str) -> str:
+    """Résout le binaire `ffmpeg`/`ffprobe` à utiliser. Le build `ffmpeg` RÉGULIER de Homebrew n'a
+    PAS libass (donc pas de filtre `subtitles` -> l'incrustation locale échoue). On privilégie donc
+    `ffmpeg-full` (keg-only, non mis dans le PATH) s'il est installé : seul build local capable
+    d'incruster les sous-titres. Surchargeable par env : FFMPEG_BIN / FFPROBE_BIN (chemin complet)
+    ou FFMPEG_DIR (dossier contenant les deux)."""
+    explicit = os.getenv("FFMPEG_BIN" if name == "ffmpeg" else "FFPROBE_BIN")
+    if explicit:
+        return explicit
+    ff_dir = os.getenv("FFMPEG_DIR")
+    candidates = ([os.path.join(ff_dir, name)] if ff_dir else []) + [
+        f"/opt/homebrew/opt/ffmpeg-full/bin/{name}",   # Homebrew Apple Silicon
+        f"/usr/local/opt/ffmpeg-full/bin/{name}",      # Homebrew Intel
+    ]
+    for cand in candidates:
+        if os.path.exists(cand):
+            return cand
+    return name                                        # défaut : le binaire du PATH
+
+
+# Résolus une fois à l'import (mac : `ffmpeg-full` si présent, sinon PATH). Voir _resolve_ffmpeg_bin.
+_FFMPEG_BINS = {n: _resolve_ffmpeg_bin(n) for n in ("ffmpeg", "ffprobe")}
+
+
 def sh(cmd: list) -> subprocess.CompletedProcess:
-    """Exécute une commande, lève une erreur lisible si échec."""
+    """Exécute une commande, lève une erreur lisible si échec. Les appels `ffmpeg`/`ffprobe` sont
+    routés vers le binaire résolu (cf. _resolve_ffmpeg_bin) — indispensable pour libass/sous-titres."""
+    if cmd and cmd[0] in _FFMPEG_BINS:
+        cmd = [_FFMPEG_BINS[cmd[0]], *cmd[1:]]
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
         raise RuntimeError(f"cmd failed: {' '.join(cmd[:3])}...\n{p.stderr[-500:]}")
