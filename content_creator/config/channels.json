@@ -188,5 +188,51 @@
         }
       }
     }
+  },
+  {
+    "name": "Tech",
+    "skill": "minimax",
+    "models": {
+      "master_mind": {
+        "model_name": "anthropic/claude-opus-4-8",
+        "provider_id": "arlq_deepinfra"
+      },
+      "slm": {
+        "model_name": "anthropic/claude-opus-4-8",
+        "provider_id": "arlq_deepinfra"
+      },
+      "video_avatar": {
+        "model_name": "PrunaAI/p-video-avatar",
+        "provider_id": "arlq_deepinfra"
+      },
+      "video_generator": {
+        "model_name": "MiniMaxAI/MiniMax-H3",
+        "provider_id": "h3_local"
+      },
+      "voice_generator": {
+        "model_name": "nPczCjzI2devNBz1zQrb",
+        "provider_id": "elevenlabs"
+      },
+      "image_generator": {
+        "model_name": "stabilityai/sd3.5",
+        "provider_id": "arlq_deepinfra"
+      }
+    },
+    "context": {
+      "prompt": "Vidéo TikTok verticale 9:16 pensée mobile : format podcast TECH traité comme un SCOOP URGENT, jamais un simple récap mou. Durée ~2 min. UN SEUL présentateur porte tout : Presenter 1 (Avatar), homme barbu, casque sur les oreilles, chemise bleue à col, animateur passionné qui lance, pousse et incarne l'info avec l'énergie et l'autorité d'un journaliste tech qui balance une exclu — leak produit, feature qui change tout, chiffre qui choque, verdict sans langue de bois. Il parle SEUL face caméra — on ne montre JAMAIS deux bouches en même temps, aucun second présentateur n'apparaît. Décor : studio pro moderne, mousses acoustiques sombres, étagères de gadgets et écrans en veille en fond, micro et interface audio dans le cadre. Lumière nette et contrastée qui sculpte le visage en tons chauds sur décor gris-bleu froid, avec de discrets accents lumineux tech (reflets d'écran, LED tamisées) ; cadrage serré, sujet centré haut, marge basse pour sous-titres, légère profondeur de champ, texture réaliste et moderne, palette premium et sobre (gris, bleus profonds, accents chauds maîtrisés). Ambiance électronique/urbaine discrète qui soutient le rythme sans couvrir la voix.\n\nArc clair : accroche choc de 2-3 s (présentateur penché vers le micro, sourcils levés, main qui ponctue, il lâche l'info sous forme de question ou d'affirmation qui coupe le souffle et stoppe le scroll) → mise en contexte rapide → cœur de l'info avec LE détail technique qui fait réagir → montée d'intensité où il argumente, nuance, s'échauffe, sourit → punch final ouvert qui appelle le commentaire (\"t'en penses quoi ?\"). RÈGLE ABSOLUE de lip-sync : chaque passage où le présentateur parle à l'écran est un talking-clip lip-sync soigné, jamais de bouche désynchronisée ; varie les valeurs de plan sur lui (gros plan visage tendu vers le micro, plan poitrine avec micro et casque, léger changement d'angle) pour rythmer sans casser la cohérence du décor et de la lumière. La voix off (b-roll sans visage qui parle) est réservée à des plans d'illustration cinématiques et courts, décrits en anglais photoréaliste, un seul sujet et une seule action par plan, faible profondeur de champ et tons chauds contrôlés : gros plan macro d'une puce ou carte-mère avec reflets bleutés, doigt qui glisse sur un écran de smartphone ultra net, câbles et LED qui s'allument un à un dans la pénombre, lignes de code qui défilent floues en bokeh, mains qui déballent un gadget dans un contre-jour chaud, particules de lumière et poussière dans un rai lumineux. Énergie haute, montage vif, coupes franches, plans courts et percutants (2-8 s), gestuelle vive et regard caméra pour l'autorité. Prompts visuels en anglais, style photoréaliste moderne ; garde le décor, la lumière et la palette parfaitement cohérents d'un plan à l'autre.",
+      "ressources": {
+        "urls": [
+          "https://www.theverge.com/transportation/982653/waymo-brain-computer-chip-robotaxi-hardware-suppliers?utm_source=tldrhardware"
+        ],
+        "local_paths": [],
+        "audio_paths": []
+      },
+      "mood": "Tech podcast explainations",
+      "characters": {
+        "Avatar": {
+          "avatar_prompt": "The video captures a man actively hosting a podcast or making a video recording. The overall mood is engaging and informative, with a bright and clear visual style. The setting is an indoor studio or home office, characterized by dark acoustic foam panels on the walls and a bookshelf filled with books in the background, suggesting a professional and intellectual environment. The activity level is dynamic, with the subject speaking animatedly and using hand gestures to emphasize points. The visual aesthetic is realistic and modern, with good lighting highlighting the subject's face. The emotional tone is enthusiastic and friendly. The main subject is a man with a beard, wearing headphones and a blue collared shirt, speaking into a professional microphone. Other elements include a sound mixer or audio interface on the right side of the frame. The artistic style is photorealistic, and the color characteristics feature warm tones for the subject's skin and the books, contrasting with the cool, dark tones of the background and the blue shirt. The color palette is dominated by dark grays and blues, with accents of brown and muted colors from the books."
+        }
+      }
+    }
   }
 ]

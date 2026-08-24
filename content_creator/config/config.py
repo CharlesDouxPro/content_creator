@@ -96,8 +96,15 @@ API_KEYS = {
 # ========================
 # GOOGLE CLOUD STORAGE
 # ========================
+# Clé de service GCS : résolue en chemin ABSOLU depuis la racine du projet (comme _ENV_PATH),
+# pour ne pas dépendre du CWD du process (le backend uvicorn tourne depuis un autre dossier).
+# Surchargeable via l'env GCS_KEY_PATH (ex. déploiement où la clé est ailleurs).
+_GCS_KEY_PATH = os.getenv("GCS_KEY_PATH") or os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "api-key.json")
+)
+
 GCS_CONFIG = {
-    "json_key_path": "./api-key.json",
+    "json_key_path": _GCS_KEY_PATH,
     "bucket_name": "content-bucket-charles-doux",
     "media_paths": {
         "articles": "media/articles/",  # Secteur: articles de presse
