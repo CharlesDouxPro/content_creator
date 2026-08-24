@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useCatalog } from '../catalog'
 import { api } from '../api/client'
-import type { Channel, Character, CharacterAsset, ElevenLabsVoice } from '../api/schemas'
+import type { Channel, Character, CharacterAsset, ElevenLabsVoice, Parameter, ParameterType } from '../api/schemas'
 import { ROLES } from '../api/schemas'
+
+const PARAM_TYPES: ParameterType[] = ['string', 'text', 'url', 'number', 'boolean']
 import { clone, composeChirp3, normalize } from '../lib'
 import type { FullChannel } from '../lib'
 
@@ -77,6 +79,20 @@ export function ChannelEditor({ value, onChange }: Props) {
     })
   }
 
+  // --- Paramètres typés (surchargeables au lancement d'un run) ---
+  const parameters = v.context.parameters
+  function updateParameter(i: number, patch: Partial<Parameter>) {
+    set((c) => { c.context.parameters[i] = { ...c.context.parameters[i], ...patch } })
+  }
+  function addParameter() {
+    let name = 'param'; let n = 1
+    while (parameters.some((p) => p.name === name)) name = `param${++n}`
+    set((c) => { c.context.parameters.push({ name, type: 'string', value: '', description: null }) })
+  }
+  function removeParameter(i: number) {
+    set((c) => { c.context.parameters = c.context.parameters.filter((_, j) => j !== i) })
+  }
+
   return (
     <div className="form">
       {/* ---- Général ---- */}
@@ -133,6 +149,44 @@ export function ChannelEditor({ value, onChange }: Props) {
           <textarea rows={2} value={v.context.ressources.notes ?? ''}
             onChange={(e) => set((c) => { c.context.ressources.notes = e.target.value || null })} />
         </label>
+      </fieldset>
+
+      {/* ---- Paramètres ---- */}
+      <fieldset>
+        <legend>Paramètres (surchargeables au lancement d'un run)</legend>
+        <small className="muted">
+          Déclare des variables typées (nom + type + valeur par défaut). Au lancement d'un run,
+          chaque paramètre est pré-rempli avec sa valeur par défaut et surchargeable pour ce run.
+          Un paramètre de type <code>url</code> est aussi ajouté aux URLs à scraper.
+        </small>
+        {parameters.map((p, i) => (
+          <div key={i} className="row gap" style={{ alignItems: 'flex-start', marginTop: 8 }}>
+            <input value={p.name} placeholder="nom (ex. url, topic)" style={{ flex: '0 0 9rem' }}
+              onChange={(e) => updateParameter(i, { name: e.target.value })} />
+            <select value={p.type} style={{ flex: '0 0 7rem' }}
+              onChange={(e) => updateParameter(i, { type: e.target.value as ParameterType })}>
+              {PARAM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            {p.type === 'boolean' ? (
+              <select value={p.value || 'false'} style={{ flex: 1 }}
+                onChange={(e) => updateParameter(i, { value: e.target.value })}>
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            ) : p.type === 'text' ? (
+              <textarea rows={2} value={p.value} placeholder="valeur par défaut" style={{ flex: 1 }}
+                onChange={(e) => updateParameter(i, { value: e.target.value })} />
+            ) : (
+              <input value={p.value} placeholder="valeur par défaut" style={{ flex: 1 }}
+                type={p.type === 'number' ? 'number' : 'text'}
+                onChange={(e) => updateParameter(i, { value: e.target.value })} />
+            )}
+            <input value={p.description ?? ''} placeholder="description (optionnel)" style={{ flex: 1 }}
+              onChange={(e) => updateParameter(i, { description: e.target.value || null })} />
+            <button className="btn danger tiny" onClick={() => removeParameter(i)}>×</button>
+          </div>
+        ))}
+        <button className="btn tiny" style={{ marginTop: 8 }} onClick={addParameter}>+ Ajouter un paramètre</button>
       </fieldset>
 
       {/* ---- Modèles ---- */}

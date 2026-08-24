@@ -62,7 +62,7 @@ class RunManager:
     def _now(self) -> str:
         return datetime.now().isoformat(timespec="seconds")
 
-    def start(self, channel_name: str) -> RunInfo:
+    def start(self, channel_name: str, parameters: dict[str, str] | None = None) -> RunInfo:
         run_id = uuid.uuid4().hex[:12]
         with self._lock:
             self._logs[run_id] = []
@@ -71,10 +71,10 @@ class RunManager:
                 "started_at": self._now(), "finished_at": None, "title": None,
                 "video": None, "gcs_url": None, "error": None,
             }
-        self._executor.submit(self._run, run_id, channel_name)
+        self._executor.submit(self._run, run_id, channel_name, parameters or {})
         return self.get(run_id)  # type: ignore[return-value]
 
-    def _run(self, run_id: str, channel_name: str) -> None:
+    def _run(self, run_id: str, channel_name: str, parameters: dict[str, str]) -> None:
         info = self._runs[run_id]
         info["status"] = "running"
         buf = _RunBuffer(self._logs[run_id], sys.__stdout__)
@@ -82,7 +82,8 @@ class RunManager:
             channel = get_channel(channel_name)
             if channel is None:
                 raise ValueError(f"channel inconnu: {channel_name}")
-            pipeline_config = to_pipeline_config(channel)
+            # Surcharges de paramètres saisies au lancement (défauts channel sinon).
+            pipeline_config = to_pipeline_config(channel, overrides=parameters)
             # Import tardif : process_channel importe la pipeline (et ses deps lourdes).
             from content_creator.pipelines.pipeline_agentic import process_channel
             with contextlib.redirect_stdout(buf):

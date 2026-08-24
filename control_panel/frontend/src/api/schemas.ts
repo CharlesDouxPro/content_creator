@@ -10,6 +10,8 @@ export type ModelSpec = S['ModelSpec']
 export type Character = S['Character']
 export type Context = S['Context']
 export type Ressources = S['Ressources']
+export type Parameter = S['Parameter']
+export type ParameterType = Parameter['type']
 
 export type SkillInfo = S['SkillInfo']
 export type ProviderInfo = S['ProviderInfo']

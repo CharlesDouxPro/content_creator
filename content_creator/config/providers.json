@@ -28,7 +28,7 @@
     "api_key": ""
   },
   "h3_local": {
-    "base_url": "http://100.80.6.0:30052",
+    "base_url": "http://100.80.6.0:30010",
     "api_key": ""
   }
 }

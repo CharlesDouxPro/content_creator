@@ -16,6 +16,28 @@ import json
 import time
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+# Connexion tolérante : le serveur SGLang distant (Tailscale, GPU en cold-start) peut être
+# momentanément injoignable. On retente les erreurs de connexion avec un backoff exponentiel
+# plutôt que de tuer le clip au premier ConnectTimeout. Timeout = (connect, read).
+_CONNECT_TIMEOUT = 30
+_MAX_CONNECT_RETRIES = 5
+
+_SESSION = requests.Session()
+_retry = Retry(
+    total=_MAX_CONNECT_RETRIES,
+    connect=_MAX_CONNECT_RETRIES,
+    read=0,
+    status=0,
+    backoff_factor=2,               # 0s, 2s, 4s, 8s, 16s entre les tentatives
+    allowed_methods=frozenset(["GET", "POST"]),
+    raise_on_status=False,
+)
+_adapter = HTTPAdapter(max_retries=_retry)
+_SESSION.mount("http://", _adapter)
+_SESSION.mount("https://", _adapter)
 
 
 def _videos_url(base_url: str) -> str:
@@ -38,7 +60,8 @@ def _headers(token: str = None) -> dict:
 
 def submit(base_url: str, token: str, payload: dict) -> str:
     """Soumet un job de génération, retourne son `id`."""
-    r = requests.post(_videos_url(base_url), json=payload, headers=_headers(token), timeout=60)
+    r = _SESSION.post(_videos_url(base_url), json=payload, headers=_headers(token),
+                      timeout=(_CONNECT_TIMEOUT, 60))
     if r.status_code >= 400:
         raise RuntimeError(f"SGLang /videos {r.status_code}: {r.text[:400]}")
     data = r.json()
@@ -56,7 +79,7 @@ def wait(base_url: str, token: str, video_id: str, timeout: float = 1800, interv
     url = f"{_videos_url(base_url)}/{video_id}"
     start = time.time()
     while True:
-        r = requests.get(url, headers=_headers(token), timeout=30)
+        r = _SESSION.get(url, headers=_headers(token), timeout=(_CONNECT_TIMEOUT, 30))
         if r.status_code >= 400:
             raise RuntimeError(f"SGLang status {r.status_code}: {r.text[:300]}")
         status = r.json().get("status")
@@ -72,7 +95,8 @@ def wait(base_url: str, token: str, video_id: str, timeout: float = 1800, interv
 def download(base_url: str, token: str, video_id: str, dest: str) -> str:
     """Télécharge le MP4 d'un job terminé vers `dest`."""
     url = f"{_videos_url(base_url)}/{video_id}/content"
-    r = requests.get(url, headers=_headers(token), stream=True, timeout=300, allow_redirects=True)
+    r = _SESSION.get(url, headers=_headers(token), stream=True, timeout=(_CONNECT_TIMEOUT, 300),
+                     allow_redirects=True)
     r.raise_for_status()
     with open(dest, "wb") as f:
         for chunk in r.iter_content(chunk_size=8192):

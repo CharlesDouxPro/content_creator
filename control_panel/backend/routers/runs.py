@@ -13,13 +13,15 @@ router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 class RunRequest(BaseModel):
     channel: str
+    # Surcharges de paramètres pour CE run uniquement ({name: value}). Vide => défauts du channel.
+    parameters: dict[str, str] = {}
 
 
 @router.post("", response_model=RunInfo, status_code=202)
 def launch(req: RunRequest) -> RunInfo:
     if store.get_channel(req.channel) is None:
         raise HTTPException(404, f"channel inconnu: {req.channel}")
-    return manager.start(req.channel)
+    return manager.start(req.channel, parameters=req.parameters)
 
 
 @router.get("", response_model=list[RunInfo])

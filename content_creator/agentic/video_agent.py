@@ -98,16 +98,18 @@ def _resolve_characters(gcs: GCSManager, characters: dict, output_dir: str,
 
 
 def build_session(output_dir: str, models: dict, ressources: dict = None,
-                  characters: dict = None) -> VideoSession:
+                  characters: dict = None, parameters: dict = None) -> VideoSession:
     """Prépare les ressources partagées d'un run. Aucune notion d'avatar global : l'identité
     visuelle/vocale vit dans les PERSONNAGES (résolus ici). C'est le SKILL qui décide comment les
     utiliser (ex. avatar_story : un personnage sert d'avatar face caméra).
     `models` = PoolModelConfig : `slm` -> script/titre ; `video_avatar`/`video_generator`/`voice_generator`
-    propagés via la session. `ressources` = context.ressources exposés aux tools."""
+    propagés via la session. `ressources` = context.ressources exposés aux tools.
+    `parameters` = paramètres résolus du run (défauts channel + overrides) exposés à l'agent."""
     gcs = GCSManager()
     ctx = Ctx(gcs=gcs, summarizer=ArticleSummarizer(models["slm"]))
     return VideoSession(ctx=ctx, output_dir=output_dir,
                         models=models, ressources=ressources or {},
+                        parameters=parameters or {},
                         voice=models.get("voice_generator"),
                         characters=_resolve_characters(gcs, characters, output_dir,
                                                        image_model=models.get("image_generator")))
@@ -133,6 +135,17 @@ def _render_ressources(ressources: dict) -> str:
     if notes:
         lines.append(f"- Notes: {notes}")
     return "## AVAILABLE RESOURCES\n" + "\n".join(lines) if lines else ""
+
+
+def _render_parameters(parameters: dict) -> str:
+    """Inventaire des paramètres du run (valeurs résolues : défauts channel + overrides) pour
+    le message user. L'agent s'appuie dessus pour adapter la vidéo (sujet, url, réglages…)."""
+    if not parameters:
+        return ""
+    lines = ["## PARAMETERS (run inputs — use these values to drive the video)"]
+    for name, value in parameters.items():
+        lines.append(f"- {name}: {value}")
+    return "\n".join(lines)
 
 
 def _render_characters(characters: dict) -> str:
@@ -168,13 +181,15 @@ def run_agent(content: str = None, skill_name: str = "avatar_story",
     prompt = context.get("prompt")
     ressources = context.get("ressources") or {}
     characters = context.get("characters") or {}
+    parameters = context.get("parameters") or {}  # paramètres résolus (défauts channel + overrides run)
     mood = mood or context.get("mood")            # mood du channel (context)
 
     tracer = Tracer(label=label)
     tracer.start(content or prompt or "", skill_name, "")
 
     skill = get_skill(skill_name)
-    session = build_session(tracer.dir, models, ressources, characters=characters)
+    session = build_session(tracer.dir, models, ressources, characters=characters,
+                            parameters=parameters)
     session.article = article
     session.name = label                          # namespace de dédup pour le tool scrape_article
 
@@ -219,6 +234,9 @@ def run_agent(content: str = None, skill_name: str = "avatar_story",
     user_parts = []
     if prompt:
         user_parts.append(f"## BRIEF\n{prompt}")
+    parameters_block = _render_parameters(parameters)
+    if parameters_block:
+        user_parts.append(parameters_block)
     if content:
         user_parts.append(f"## SOURCE CONTENT\n{content}")
     ressources_block = _render_ressources(ressources)

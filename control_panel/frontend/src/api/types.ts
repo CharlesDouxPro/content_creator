@@ -92,6 +92,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Providers */
+        get: operations["list_providers_api_providers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/providers/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Provider
+         * @description Crée OU met à jour un provider nommé (upsert).
+         */
+        put: operations["put_provider_api_providers__name__put"];
+        post?: never;
+        /** Remove Provider */
+        delete: operations["remove_provider_api_providers__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/channels/enhance-prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enhance Prompt
+         * @description Améliore le brief (`context.prompt`) du channel via son `master_mind`, calibré sur le moteur
+         *     vidéo cible (`video_generator`). N'écrit RIEN : renvoie juste le prompt amélioré, que le front
+         *     injecte dans le champ (l'utilisateur sauvegarde ensuite comme d'habitude).
+         */
+        post: operations["enhance_prompt_api_channels_enhance_prompt_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/channels": {
         parameters: {
             query?: never;
@@ -302,6 +362,8 @@ export interface components {
             characters?: {
                 [key: string]: components["schemas"]["Character"];
             };
+            /** Parameters */
+            parameters?: components["schemas"]["Parameter"][];
         };
         /** ElevenLabsVoice */
         ElevenLabsVoice: {
@@ -316,6 +378,11 @@ export interface components {
             labels: {
                 [key: string]: string;
             };
+        };
+        /** EnhancedPrompt */
+        EnhancedPrompt: {
+            /** Prompt */
+            prompt: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -332,8 +399,7 @@ export interface components {
             video_avatar: components["schemas"]["ModelSpec"];
             video_generator: components["schemas"]["ModelSpec"];
             voice_generator: components["schemas"]["ModelSpec"];
-            /** Optionnel côté backend (défaut Qwen/DeepInfra) ; toujours présent après defaultPool(). */
-            image_generator: components["schemas"]["ModelSpec"];
+            image_generator?: components["schemas"]["ModelSpec"];
         };
         /**
          * ModelSpec
@@ -365,6 +431,43 @@ export interface components {
                 [key: string]: string[];
             };
         };
+        /**
+         * Parameter
+         * @description Paramètre TYPÉ du channel : une variable nommée avec une valeur par défaut, que l'on
+         *     peut SURCHARGER au lancement d'un run. `value` est toujours stockée en str (coercée selon
+         *     `type` à la résolution). Un paramètre de type `url` est en plus injecté dans
+         *     ressources.urls -> consommé tel quel par scrape_article / le rendu des ressources.
+         */
+        Parameter: {
+            /** Name */
+            name: string;
+            /**
+             * Type
+             * @default string
+             * @enum {string}
+             */
+            type: "string" | "text" | "url" | "number" | "boolean";
+            /**
+             * Value
+             * @default
+             */
+            value: string;
+            /** Description */
+            description?: string | null;
+        };
+        /** ProviderIn */
+        ProviderIn: {
+            /**
+             * Base Url
+             * @default
+             */
+            base_url: string;
+            /**
+             * Api Key
+             * @default
+             */
+            api_key: string;
+        };
         /** ProviderInfo */
         ProviderInfo: {
             /** Id */
@@ -373,6 +476,15 @@ export interface components {
             base_url: string;
             /** Token Set */
             token_set: boolean;
+        };
+        /** ProviderOut */
+        ProviderOut: {
+            /** Name */
+            name: string;
+            /** Base Url */
+            base_url: string;
+            /** Api Key Set */
+            api_key_set: boolean;
         };
         /**
          * Ressources
@@ -418,6 +530,13 @@ export interface components {
         RunRequest: {
             /** Channel */
             channel: string;
+            /**
+             * Parameters
+             * @default {}
+             */
+            parameters: {
+                [key: string]: string;
+            };
         };
         /** SkillInfo */
         SkillInfo: {
@@ -572,6 +691,123 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ElevenLabsVoice"][];
+                };
+            };
+        };
+    };
+    list_providers_api_providers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderOut"][];
+                };
+            };
+        };
+    };
+    put_provider_api_providers__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_provider_api_providers__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enhance_prompt_api_channels_enhance_prompt_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Channel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnhancedPrompt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

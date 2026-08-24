@@ -59,9 +59,9 @@ export const api = {
     return res.json()
   },
 
-  // Runs
-  launchRun: (channel: string) =>
-    req<RunInfo>('/api/runs', { method: 'POST', body: JSON.stringify({ channel }) }),
+  // Runs — `parameters` = surcharges de paramètres pour ce run ({name: value}), vide => défauts channel.
+  launchRun: (channel: string, parameters: Record<string, string> = {}) =>
+    req<RunInfo>('/api/runs', { method: 'POST', body: JSON.stringify({ channel, parameters }) }),
   listRuns: () => req<RunInfo[]>('/api/runs'),
   getRun: (id: string) => req<RunInfo>(`/api/runs/${encodeURIComponent(id)}`),
 

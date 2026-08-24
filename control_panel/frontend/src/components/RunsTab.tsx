@@ -36,12 +36,27 @@ export function RunsTab() {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
   }, [runs, selected])
 
-  async function launch(name: string) {
+  // Channel dont on prépare le lancement (formulaire de paramètres) + valeurs saisies.
+  const [launchFor, setLaunchFor] = useState<Channel | null>(null)
+  const [paramValues, setParamValues] = useState<Record<string, string>>({})
+
+  // Clic sur un channel : s'il a des paramètres, on ouvre le formulaire (pré-rempli avec les
+  // défauts) ; sinon on lance directement.
+  function onChannelClick(c: Channel) {
+    const params = c.context?.parameters ?? []
+    if (params.length === 0) { launch(c.name); return }
+    setError(null)
+    setLaunchFor(c)
+    setParamValues(Object.fromEntries(params.map((p) => [p.name, p.value])))
+  }
+
+  async function launch(name: string, parameters: Record<string, string> = {}) {
     setError(null)
     try {
-      const info = await api.launchRun(name)
+      const info = await api.launchRun(name, parameters)
       setSelected(info.id)
       setRuns((prev) => [...prev, info])
+      setLaunchFor(null)
     } catch (e) {
       setError(String(e))
     }
@@ -56,10 +71,41 @@ export function RunsTab() {
         <p className="muted">Rend la vidéo via la pipeline (plusieurs minutes). Les logs s'affichent en direct.</p>
         <div className="chips">
           {channels.map((c) => (
-            <button key={c.name} className="btn primary" onClick={() => launch(c.name)}>▶ {c.name}</button>
+            <button key={c.name} className="btn primary" onClick={() => onChannelClick(c)}>▶ {c.name}</button>
           ))}
         </div>
         {error && <p className="error">{error}</p>}
+
+        {launchFor && (
+          <div className="card" style={{ marginTop: 12 }}>
+            <div className="row between">
+              <h3 style={{ margin: 0 }}>Paramètres du run — {launchFor.name}</h3>
+              <button className="btn ghost tiny" onClick={() => setLaunchFor(null)}>Annuler</button>
+            </div>
+            <p className="muted">Pré-remplis avec les valeurs par défaut du channel. Surcharge pour ce run uniquement.</p>
+            {(launchFor.context?.parameters ?? []).map((p) => (
+              <label className="field" key={p.name}>
+                <span>{p.name} <small className="muted">({p.type})</small></span>
+                {p.type === 'boolean' ? (
+                  <select value={paramValues[p.name] ?? 'false'}
+                    onChange={(e) => setParamValues((s) => ({ ...s, [p.name]: e.target.value }))}>
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                ) : p.type === 'text' ? (
+                  <textarea rows={2} value={paramValues[p.name] ?? ''}
+                    onChange={(e) => setParamValues((s) => ({ ...s, [p.name]: e.target.value }))} />
+                ) : (
+                  <input value={paramValues[p.name] ?? ''} type={p.type === 'number' ? 'number' : 'text'}
+                    onChange={(e) => setParamValues((s) => ({ ...s, [p.name]: e.target.value }))} />
+                )}
+                {p.description && <small className="muted">{p.description}</small>}
+              </label>
+            ))}
+            <button className="btn primary" style={{ marginTop: 8 }}
+              onClick={() => launch(launchFor.name, paramValues)}>▶ Lancer avec ces paramètres</button>
+          </div>
+        )}
       </section>
 
       <section className="card">

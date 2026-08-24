@@ -1,5 +1,5 @@
 // Helpers de construction/normalisation des channels côté UI.
-import type { Channel, Character, ModelPool, ModelsInfo } from './api/schemas'
+import type { Channel, Character, ModelPool, ModelsInfo, Parameter } from './api/schemas'
 import { ROLES } from './api/schemas'
 
 // Formes "pleines" (tous les champs présents) pour éditer sans se battre avec les
@@ -15,6 +15,7 @@ export interface FullContext {
   mood: string
   ressources: FullRessources
   characters: Record<string, Character>
+  parameters: Parameter[]
 }
 export interface FullChannel {
   name: string
@@ -41,6 +42,7 @@ export function normalize(c: Channel): FullChannel {
         notes: r?.notes ?? null,
       },
       characters: ctx?.characters ?? {},
+      parameters: ctx?.parameters ?? [],
     },
   }
 }
@@ -66,6 +68,7 @@ export function blankChannel(skill: string, models: ModelsInfo): Channel {
       mood: '',
       ressources: { urls: [], local_paths: [], audio_paths: [], notes: null },
       characters: {},
+      parameters: [],
     },
   }
 }

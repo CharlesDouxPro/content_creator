@@ -934,36 +934,32 @@ def generate_minimax_video(
     seconds: float = 5,
     seed: int = SEED_BASE,
     ref_url: str = None,
-    task: str = None,
     aspect_ratio: str = RATIO,
-    num_inference_steps: int = 5,
+    num_inference_steps: int = 7,
     flow_shift: float = 12.0,
     audio_flow_shift: float = 3.0,
 ) -> str:
     """Génère une vidéo audiovisuelle MiniMax-H3 (audio NATIF conservé) et renvoie le MP4.
 
-    `task` auto : `ref2va` si `ref_url` (avatar = référence d'identité, cadrage libre), sinon
-    `t2va`. `fl2va` (avatar = 1re frame) reste sélectionnable explicitement. `num_inference_steps`
-    = points de grille sigma (zéro terminal inclus) => évaluations = steps-1. Défaut 5 pour le LoRA
-    turbo ref2v 4-step (4 évaluations). base_url/token = provider du rôle video_generator du channel.
+    Ce déploiement ne sert QUE la tâche `ref2va` (avatar = référence d'identité, cadrage libre) :
+    une image de référence (`ref_url`) est OBLIGATOIRE — pas de `t2va` (texte seul) ni `fl2va`
+    (1re frame). `num_inference_steps` = points de grille sigma (zéro terminal inclus) => évaluations
+    = steps-1. Défaut 7 pour le LoRA turbo ref2v (6 évaluations, rendu moins « cheap »). base_url/token = provider du
+    rôle video_generator du channel.
     """
     provider = model_config["provider"]
     base_url, token = provider["base_url"], provider.get("token")
     dur = max(5.0, min(15.0, float(seconds or 5)))
-    if task is None:
-        task = "ref2va" if ref_url else "t2va"
-    conditions = []
-    if ref_url:
-        if task == "fl2va":
-            conditions = [{"type": "image", "uri": ref_url, "role": "keyframe", "frame_index": 0}]
-        else:                                          # ref2va : référence d'identité (pas de frame_index)
-            conditions = [{"type": "image", "uri": ref_url, "role": "reference"}]
+    if not ref_url:
+        raise ValueError("MiniMax-H3 ne sert que ref2va : une image de référence (ref_url) est "
+                         "obligatoire. Fournis un avatar/personnage avec image ou un reference_image.")
+    conditions = [{"type": "image", "uri": ref_url, "role": "reference"}]  # ref2va : référence d'identité
     short_edge = SGLANG_SHORT_EDGE.get(resolve_model_skill(model_config), 768)
     payload = {
         "model": model_config["model_name"],
         "prompt": prompt,
         "seconds": int(round(dur)),
-        "task": task,
+        "task": "ref2va",
         "conditions": conditions,
         "target": {"short_edge": short_edge, "aspect_ratio": aspect_ratio, "duration_seconds": dur},
         "num_outputs_per_prompt": 1,

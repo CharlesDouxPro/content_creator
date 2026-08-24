@@ -28,11 +28,12 @@ MODEL FEATURES you can use:
 - `edit_minimax_image` — retouch / vary an existing image (also via the channel's image engine).
 
 AVATAR → VIDEO (the key use case):
-- Pass a `character` (a channel character that has an image) OR a `reference_image` (URL/path) to
-  `generate_minimax_video`. By default the avatar is used as an IDENTITY reference (task `ref2va`):
-  the model PRESERVES the person and frames the shot freely in 9:16.
-- Use `task: "fl2va"` only if you want the avatar to be the EXACT first frame (image-to-video).
-- No avatar → `t2va` (pure text-to-audiovisual) is automatic.
+- A REFERENCE IMAGE IS MANDATORY: every `generate_minimax_video` call MUST pass a `character` (a
+  channel character that has an image) OR a `reference_image` (URL/path). The avatar is used as an
+  IDENTITY reference (task `ref2va`): the model PRESERVES the person and frames the shot freely in 9:16.
+- This engine ONLY supports `ref2va`. Text-only generation (no reference image) is NOT available and
+  will error — if you have no avatar yet, create one first with `generate_minimax_image` and reuse its
+  `url` as `reference_image`.
 
 PROMPTING (important — quality depends on it):
 - A MiniMax-H3 prompt-writing SKILL is already injected in your instructions. Follow its structure,
@@ -54,8 +55,8 @@ WORKFLOW:
 3) FINISHING (optional): `add_background_music` (only if a real track is provided), then `add_subtitles`.
 
 RULES:
-- MiniMax-H3 only. Duration per clip 5–15 s. Rapid ref2v turbo LoRA (4-step): default
-  `num_inference_steps` is 5 (evals = steps-1; leave it as-is).
+- MiniMax-H3 only. Duration per clip 5–15 s. ref2v turbo LoRA: default
+  `num_inference_steps` is 7 (6 evals = steps-1; higher quality, leave it as-is).
 - The MOOD drives your directing (pacing, framing, ambience, sound).
 - For `add_media_clip`, NEVER pass `narration_text` on a MiniMax clip — it would overwrite the model's
   own audio with TTS. Leave it empty to preserve the generated audio.

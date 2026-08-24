@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -131,6 +131,22 @@ class Ressources(BaseModel):
     notes: str | None = None
 
 
+ParameterType = Literal["string", "text", "url", "number", "boolean"]
+
+
+class Parameter(BaseModel):
+    """Paramètre TYPÉ du channel : une variable nommée avec une valeur par défaut, que l'on
+    peut SURCHARGER au lancement d'un run. `value` est toujours stockée en str (coercée selon
+    `type` à la résolution). Un paramètre de type `url` est en plus injecté dans
+    ressources.urls -> consommé tel quel par scrape_article / le rendu des ressources."""
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    type: ParameterType = "string"
+    value: str = ""                     # valeur par défaut (str ; coercée par `type` à la résolution)
+    description: str | None = None      # aide affichée dans le formulaire de run
+
+
 class Context(BaseModel):
     """Brief créatif du channel."""
     model_config = ConfigDict(extra="forbid")
@@ -139,6 +155,7 @@ class Context(BaseModel):
     ressources: Ressources = Field(default_factory=Ressources)
     mood: str = ""
     characters: dict[str, Character] = Field(default_factory=dict)
+    parameters: list[Parameter] = Field(default_factory=list)
 
 
 class Channel(BaseModel):
@@ -191,13 +208,55 @@ def resolve_pool(pool: ModelPool) -> PoolModelConfig:
     }
 
 
-def to_pipeline_config(channel: Channel) -> dict:
-    """Channel éditable -> `PipelineConfig` (dict) que process_channel/run_agent consomment."""
+def _coerce_param(value: str, ptype: ParameterType):
+    """Coerce la valeur (toujours str en stockage) vers le type déclaré du paramètre."""
+    if ptype == "number":
+        try:
+            f = float(value)
+            return int(f) if f.is_integer() else f
+        except (TypeError, ValueError):
+            return None
+    if ptype == "boolean":
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+    return value  # string / text / url : tel quel
+
+
+def resolve_parameters(ctx: Context, overrides: dict[str, str] | None = None) -> dict:
+    """Résout les paramètres du channel : valeur finale = override du run (si fourni) sinon
+    défaut du channel, coercée selon le type. Retourne {name: valeur_coercée} — seuls les noms
+    DÉCLARÉS sur le channel sont pris en compte (un override inconnu est ignoré)."""
+    overrides = overrides or {}
+    resolved = {}
+    for p in ctx.parameters:
+        raw = overrides.get(p.name, p.value) if p.name in overrides else p.value
+        resolved[p.name] = _coerce_param(raw if raw is not None else "", p.type)
+    return resolved
+
+
+def to_pipeline_config(channel: Channel, overrides: dict[str, str] | None = None) -> dict:
+    """Channel éditable -> `PipelineConfig` (dict) que process_channel/run_agent consomment.
+
+    `overrides` (optionnel) = valeurs de paramètres saisies au lancement d'un run ({name: value}),
+    qui remplacent ponctuellement les défauts du channel SANS le modifier. Les paramètres de type
+    `url` sont en plus fusionnés dans ressources.urls (dédup) pour que scrape_article / le rendu
+    des ressources les prennent en compte sans câblage supplémentaire."""
     ctx = channel.context
     ressources = {k: v for k, v in ctx.ressources.model_dump(exclude_none=True).items() if v}
     characters = {
         name: c.model_dump(exclude_none=True) for name, c in ctx.characters.items()
     }
+    parameters = resolve_parameters(ctx, overrides)
+    # Injection des paramètres `url` (valeur non vide) dans ressources.urls, en préservant l'ordre
+    # et en dédupliquant vis-à-vis des urls déjà présentes.
+    url_params = [p.name for p in ctx.parameters if p.type == "url"]
+    if url_params:
+        urls = list(ressources.get("urls") or [])
+        for name in url_params:
+            val = parameters.get(name)
+            if val and val not in urls:
+                urls.append(val)
+        if urls:
+            ressources["urls"] = urls
     return {
         "name": channel.name,
         "skill": channel.skill,
@@ -207,6 +266,7 @@ def to_pipeline_config(channel: Channel) -> dict:
             "ressources": ressources,
             "mood": ctx.mood,
             "characters": characters,
+            "parameters": parameters,
         },
     }
 
