@@ -248,8 +248,15 @@ export function ChannelEditor({ value, onChange }: Props) {
                   </label>
                   <label className="field">
                     <span>Description</span>
-                    <input value={ch.description ?? ''} placeholder="apparence / personnalité"
+                    <input value={ch.description ?? ''} placeholder="rôle / personnalité (ex. présentateur posé)"
                       onChange={(e) => updateCharacter(key, { description: e.target.value || null })} />
+                  </label>
+                  <label className="field">
+                    <span>Apparence (verrou d'identité)</span>
+                    <textarea rows={4} value={ch.appearance ?? ''}
+                      placeholder="Traits PHYSIQUES fixes, collant à l'image : âge, cheveux, pilosité, tenue exacte, accessoires (ou 'pas de micro/casque'), décor. Ex. homme la cinquantaine, cheveux gris courts, barbe poivre-et-sel, t-shirt gris uni, fond studio clair, pas de micro."
+                      onChange={(e) => updateCharacter(key, { appearance: e.target.value || null })} />
+                    <small className="muted">MiniMax-H3 : injecté verbatim et à l'identique dans chaque clip pour figer l'apparence entre les plans. Doit correspondre à l'image de référence.</small>
                   </label>
                   <details className="advanced">
                     <summary>Voix expressive (Gemini)</summary>

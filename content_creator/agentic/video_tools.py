@@ -404,16 +404,39 @@ def generate_video(session: VideoSession, prompt: str, reference_image: str = No
 # ========================
 # TOOLS — MiniMax-H3 NATIF (l'audio est GÉNÉRÉ par le modèle : aucun TTS, aucun lip-sync)
 # ========================
+def _identity_lock_block(char: dict) -> str:
+    """VERROU D'IDENTITÉ ref2va : construit un bloc `subject_definitions` + `retention_analysis`
+    figeant l'apparence du personnage (champ `appearance`, à défaut `description`). Injecté EN TÊTE
+    de chaque prompt et IDENTIQUE d'un clip à l'autre -> l'avatar ne dérive plus (coupe, tenue, micro,
+    décor stables). Vide si aucune apparence connue (ex. reference_image brute sans personnage)."""
+    look = (char.get("appearance") or char.get("description") or "").strip()
+    if not look:
+        return ""
+    return (
+        "subject_definitions:\n"
+        "<Subject 1> is the on-camera presenter from the reference image. Fixed, invariant appearance "
+        f"(matches the reference exactly): {look}\n\n"
+        "retention_analysis:\n"
+        "<Subject 1>'s appearance is FULLY PRESERVED and UNCHANGED in every shot — face, age, hair, "
+        "facial hair, skin tone, wardrobe and any worn accessories match the reference and the definition "
+        "above exactly. Do NOT re-age, restyle, change the outfit, or add/remove props (glasses, hat, "
+        "headphones, microphone) unless the shot description below explicitly requires it.\n\n"
+    )
+
+
 @tool({
     "name": "generate_minimax_video",
     "description": "Generate ONE audiovisual clip with MiniMax-H3: the MODEL generates the VIDEO "
                    "AND ITS AUDIO in a single pass (spoken lines + soundscape come FROM the prompt — "
                    "NO TTS, NO lip-sync). Renders IMMEDIATELY and RETURNS the local .mp4 path (native "
                    "audio kept). A REFERENCE IMAGE IS REQUIRED: pass a `character` (with an image) or a "
-                   "`reference_image` (avatar). It is used as an IDENTITY reference (ref2va) — the model "
-                   "preserves the person and frames freely. This engine only supports ref2va: text-only "
-                   "generation is NOT available, every clip must have a reference image. Write the prompt "
-                   "following the H3 prompt-writing skill (English, with the dialogue and the soundscape).",
+                   "`reference_image` (avatar). It is used as an IDENTITY reference (ref2va). To keep the "
+                   "SAME look across clips (hair, wardrobe, headphones, microphone, setting), write the "
+                   "prompt in the H3 FULL-REFERENCE format and LOCK those traits in `subject_definitions` "
+                   "+ `retention_analysis` (fully preserved), reusing that block verbatim on every clip — "
+                   "see the minimax skill. This engine only supports ref2va: text-only generation is NOT "
+                   "available, every clip must have a reference image. Write the prompt in English, with "
+                   "the dialogue and the soundscape.",
     "parameters": {"type": "object", "properties": {
         "prompt": {"type": "string", "description": "H3-structured video prompt (English): scene, action, "
                    "camera, and the SPOKEN LINES + soundscape the model must generate as audio."},
@@ -424,12 +447,16 @@ def generate_video(session: VideoSession, prompt: str, reference_image: str = No
         "aspect_ratio": {"type": "string", "description": "Optional: 9:16 (default), 16:9, 1:1, 4:3, 3:4, 21:9."},
         "num_inference_steps": {"type": "integer", "description": "Optional: sigma grid points (evals = "
                                 "steps-1). Default 7 (6 evals) for the ref2v turbo LoRA. Leave as-is."},
+        "seed": {"type": "integer", "description": "Optional generation seed. Defaults to a FIXED seed "
+                 "shared by every clip so the avatar keeps the SAME face across the whole video. Only "
+                 "override it if you deliberately want a different rendering."},
         **_CHARACTER_PROP,
     }, "required": ["prompt"]},
 })
 def generate_minimax_video(session: VideoSession, prompt: str, reference_image: str = None,
                            seconds: int = 5, aspect_ratio: str = "9:16",
-                           num_inference_steps: int = 7, character: str = None) -> dict:
+                           num_inference_steps: int = 7, seed: int = None,
+                           character: str = None) -> dict:
     """Rend un clip audiovisuel MiniMax-H3 (audio natif) et renvoie le chemin du MP4.
     Ce moteur ne sert QUE ref2va : une image de référence est obligatoire (pas de t2va)."""
     mc = (session.models or {}).get("video_generator") or {}
@@ -445,9 +472,11 @@ def generate_minimax_video(session: VideoSession, prompt: str, reference_image: 
     idx = session.clip_no
     session.clip_no += 1
     dest = os.path.join(session.output_dir, f"minimax_{idx + 1}.mp4")
+    # Verrou d'identité : préfixe verbatim (identique sur tous les clips) figeant l'apparence.
+    full_prompt = _identity_lock_block(char) + prompt
     path = _cap_minimax_video(
-        prompt=prompt, dest=dest, model_config=mc,
-        seconds=seconds, seed=SEED_BASE + idx, ref_url=ref,
+        prompt=full_prompt, dest=dest, model_config=mc,
+        seconds=seconds, seed=TALKING_SEED if seed is None else int(seed), ref_url=ref,
         aspect_ratio=aspect_ratio, num_inference_steps=num_inference_steps,
     )
     return {"status": "ok", "video": path, "seconds": max(5, min(15, int(seconds or 5))),

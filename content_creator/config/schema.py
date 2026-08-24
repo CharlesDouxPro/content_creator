@@ -117,6 +117,11 @@ class Character(BaseModel):
     voice_model: str | None = None    # modelName TTS (requis pour `style`)
     language: str | None = None       # locale (ex. "fr-FR")
     description: str | None = None     # apparence/personnalité (injectée dans les shots)
+    appearance: str | None = None      # VERROU D'IDENTITÉ (ref2va) : traits physiques FIXES et invariants
+                                       # (visage, âge, cheveux, pilosité, tenue exacte, accessoires portés,
+                                       # décor). Doit COLLER à l'image de référence. Injecté verbatim en
+                                       # `subject_definitions` + `retention_analysis` dans CHAQUE clip
+                                       # MiniMax-H3 pour figer l'apparence entre les plans. Cf. minimax skill.
     avatar_prompt: str | None = None   # si aucune `image` : prompt de GÉNÉRATION de l'avatar (FLUX t2i).
                                        # À défaut, l'avatar est généré depuis `description`.
 

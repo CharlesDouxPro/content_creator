@@ -10,26 +10,34 @@ Tout est piloté par le CHANNEL CONFIG (content_creator/config/channels.py) — 
 ligne de commande. Lancement via la pipeline : `python -m content_creator.pipelines.pipeline_agentic`.
 """
 
-import os
 import json
+import os
 import time
 
 from openai import OpenAI
 
-from content_creator.config.channels import default_models_config
-from content_creator.pipelines.modules import GCSManager, ArticleSummarizer
-from content_creator.agentic.capabilities import Ctx, download, upload_public, text_to_image
-from content_creator.agentic.video_tools import (
-    VideoSession, openai_tool_schemas, dispatch, cleanup_fetched_images,
+from content_creator.agentic.capabilities import (
+    Ctx,
+    download,
+    text_to_image,
+    upload_public,
 )
-from content_creator.agentic.video_skills import get_skill
+from content_creator.agentic.ltx_prompting import build_prompt_guide
 from content_creator.agentic.model_prompting import (
     DEFAULT_MODEL_KEY,
     list_style_skills,
     resolve_model_skill,
 )
-from content_creator.agentic.ltx_prompting import build_prompt_guide
 from content_creator.agentic.trace import Tracer
+from content_creator.agentic.video_skills import get_skill
+from content_creator.agentic.video_tools import (
+    VideoSession,
+    cleanup_fetched_images,
+    dispatch,
+    openai_tool_schemas,
+)
+from content_creator.config.channels import default_models_config
+from content_creator.pipelines.modules import ArticleSummarizer, GCSManager
 
 # Cerveau de l'agent : modèle par défaut (rôle `master_mind`) si le channel n'en fournit pas.
 AGENT_MODEL = "anthropic/claude-opus-4-8"
@@ -92,7 +100,7 @@ def _resolve_characters(gcs: GCSManager, characters: dict, output_dir: str,
                 portrait_url = local_image = None
         resolved[name] = {"voice": c.get("voice"), "style": c.get("style"),
                           "voice_model": c.get("voice_model"), "language": c.get("language"),
-                          "description": c.get("description"),
+                          "description": c.get("description"), "appearance": c.get("appearance"),
                           "portrait_url": portrait_url, "local_image": local_image}
     return resolved
 

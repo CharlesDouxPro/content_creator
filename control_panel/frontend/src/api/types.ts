@@ -330,6 +330,8 @@ export interface components {
             language?: string | null;
             /** Description */
             description?: string | null;
+            /** Appearance */
+            appearance?: string | null;
             /** Avatar Prompt */
             avatar_prompt?: string | null;
         };

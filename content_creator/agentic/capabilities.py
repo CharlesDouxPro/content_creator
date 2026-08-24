@@ -7,9 +7,9 @@ b-roll (Wan), recadrage 9:16, concat, upload GCS. Pas d'orchestration ici
 (l'agent orchestre via les tools).
 """
 
-import os
-import json
 import base64
+import json
+import os
 import subprocess
 import threading
 import urllib.parse
@@ -18,10 +18,13 @@ from dataclasses import dataclass
 import requests
 from openai import OpenAI
 
-from content_creator.config.config import API_KEYS, VIDEO_BACKEND_CONFIG
-from content_creator.pipelines.modules import GCSManager, ArticleSummarizer
 from content_creator.agentic import ltx_client, sglang_video_client
-from content_creator.agentic.model_prompting import resolve_model_skill, uses_sglang_video
+from content_creator.agentic.model_prompting import (
+    resolve_model_skill,
+    uses_sglang_video,
+)
+from content_creator.config.config import API_KEYS, VIDEO_BACKEND_CONFIG
+from content_creator.pipelines.modules import ArticleSummarizer, GCSManager
 
 # ========================
 # CONFIG
@@ -143,7 +146,7 @@ def _deepinfra_inference(model_config: dict, fallback_url: str) -> tuple[str, st
         return fallback_url, API_KEYS["deepinfra_api_key"]
     provider = model_config["provider"]
     base = provider["base_url"].rstrip("/")
-    root = base[: -len("/openai")] if base.endswith("/openai") else base
+    root = base.removesuffix("/openai")
     return f"{root}/inference/{model_config['model_name']}", provider["token"]
 
 
@@ -164,8 +167,7 @@ def download(url: str, dest: str) -> str:
     r = requests.get(url, stream=True, timeout=300)
     r.raise_for_status()
     with open(dest, "wb") as f:
-        for chunk in r.iter_content(chunk_size=8192):
-            f.write(chunk)
+        f.writelines(r.iter_content(chunk_size=8192))
     return dest
 
 
@@ -175,8 +177,7 @@ def download_media(url: str, dest: str) -> str:
     r = requests.get(url, stream=True, timeout=300, headers=_WEB_UA)
     r.raise_for_status()
     with open(dest, "wb") as f:
-        for chunk in r.iter_content(chunk_size=8192):
-            f.write(chunk)
+        f.writelines(r.iter_content(chunk_size=8192))
     return dest
 
 
@@ -497,8 +498,7 @@ def elevenlabs_forced_alignment(audio_path: str, transcript: str, api_key: str,
     (ni transcription ni faute de mot). Retourne [{text, start, end}] au mot (secondes).
     `base_url` = racine du provider ElevenLabs (comme le TTS) ; défaut api.elevenlabs.io."""
     root = (base_url or "https://api.elevenlabs.io").rstrip("/")
-    if root.endswith("/v1"):
-        root = root[:-3]
+    root = root.removesuffix("/v1")
     url = f"{root}/v1/forced-alignment"
     with open(audio_path, "rb") as fh:
         files = {"file": (os.path.basename(audio_path), fh, "audio/wav")}
@@ -565,8 +565,7 @@ def concat_clips(clips: list, out: str) -> str:
     """Assemble plusieurs clips (déjà normalisés) en une vidéo finale."""
     list_path = os.path.join(os.path.dirname(out) or ".", "_concat_list.txt")
     with open(list_path, "w") as f:
-        for c in clips:
-            f.write(f"file '{os.path.abspath(c)}'\n")
+        f.writelines(f"file '{os.path.abspath(c)}'\n" for c in clips)
     sh(
         [
             "ffmpeg",
@@ -644,7 +643,7 @@ def _edit_inference_endpoint(model_config: dict = None) -> tuple[str, str]:
     rôle image_generator ; le MODÈLE reste IMAGE_EDIT_MODEL (le model_name du rôle porte le t2i)."""
     provider = (model_config or {}).get("provider") or {}
     base = (provider.get("base_url") or "https://api.deepinfra.com/v1/openai").rstrip("/")
-    root = base[: -len("/openai")] if base.endswith("/openai") else base
+    root = base.removesuffix("/openai")
     token = provider.get("token") or API_KEYS["deepinfra_api_key"]
     return f"{root}/inference/{IMAGE_EDIT_MODEL}", token
 
