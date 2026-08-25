@@ -50,7 +50,9 @@ KONTEXT_MODEL = IMAGE_EDIT_MODEL
 FLUX_T2I_MODEL = IMAGE_T2I_MODEL
 
 OUT_W, OUT_H, FPS = 720, 1280, 30
-RESOLUTION = "720p"  # littéral EXACT attendu par l'API Wan/DeepInfra (minuscule ; '720P' -> 422)
+RESOLUTION = (
+    "720p"  # littéral EXACT attendu par l'API Wan/DeepInfra (minuscule ; '720P' -> 422)
+)
 RATIO = "9:16"
 
 # short_edge imposé par certains modèles SGLang (clé = resolve_model_skill). MiniMax-H3
@@ -79,6 +81,22 @@ DEFAULT_SCENE = (
     "a steaming cup of coffee, blurred plants and a bookshelf"
 )
 BACKGROUND_PROMPT = BACKGROUND_TEMPLATE.format(scene=DEFAULT_SCENE)  # fallback
+
+# Image d'ÉTABLISSEMENT (générée UNE fois, réutilisée comme référence de TOUS les clips du run) :
+# on garde le VISAGE/identité de la source, on HABILLE le sujet avec une tenue SIMPLE et facilement
+# reproductible par l'IA, et on le place dans un LIEU. Fige ainsi coiffure + vêtements + matériel +
+# décor -> les clips n'ont plus à ré-inférer ces détails. `{look}` = apparence du personnage,
+# `{scene}` = lieu inféré du contexte.
+ESTABLISH_TEMPLATE = (
+    "Keep the FACE, head shape, hair and skin tone of this exact same person EXACTLY identical to "
+    "the source image. Show this person as: {look}. Place them in: {scene}. "
+    "Vertical 9:16 portrait, upper body, centered, facing the camera. "
+    "IMPORTANT — the clothing MUST be SIMPLE and easy for an AI to reproduce consistently: a plain "
+    "solid-color garment (e.g. a plain crew-neck t-shirt or shirt), NO logos, NO text, NO prints, NO "
+    "complex patterns, NO flashy or busy accessories; keep at most minimal, plain accessories. "
+    "Photorealistic, cinematic, soft natural lighting, shallow depth of field. ONE single person only; "
+    "do NOT duplicate or clone the person; keep the identity and face EXACTLY the same."
+)
 PRUNA_MOVEMENT = (
     "Natural lively head movements and subtle gestures in sync with the speech, "
     "expressive but calm, keeping the same person and identity, staying in the same framing."
@@ -109,13 +127,13 @@ def _resolve_ffmpeg_bin(name: str) -> str:
         return explicit
     ff_dir = os.getenv("FFMPEG_DIR")
     candidates = ([os.path.join(ff_dir, name)] if ff_dir else []) + [
-        f"/opt/homebrew/opt/ffmpeg-full/bin/{name}",   # Homebrew Apple Silicon
-        f"/usr/local/opt/ffmpeg-full/bin/{name}",      # Homebrew Intel
+        f"/opt/homebrew/opt/ffmpeg-full/bin/{name}",  # Homebrew Apple Silicon
+        f"/usr/local/opt/ffmpeg-full/bin/{name}",  # Homebrew Intel
     ]
     for cand in candidates:
         if os.path.exists(cand):
             return cand
-    return name                                        # défaut : le binaire du PATH
+    return name  # défaut : le binaire du PATH
 
 
 # Résolus une fois à l'import (mac : `ffmpeg-full` si présent, sinon PATH). Voir _resolve_ffmpeg_bin.
@@ -124,7 +142,8 @@ _FFMPEG_BINS = {n: _resolve_ffmpeg_bin(n) for n in ("ffmpeg", "ffprobe")}
 
 def sh(cmd: list) -> subprocess.CompletedProcess:
     """Exécute une commande, lève une erreur lisible si échec. Les appels `ffmpeg`/`ffprobe` sont
-    routés vers le binaire résolu (cf. _resolve_ffmpeg_bin) — indispensable pour libass/sous-titres."""
+    routés vers le binaire résolu (cf. _resolve_ffmpeg_bin) — indispensable pour libass/sous-titres.
+    """
     if cmd and cmd[0] in _FFMPEG_BINS:
         cmd = [_FFMPEG_BINS[cmd[0]], *cmd[1:]]
     p = subprocess.run(cmd, capture_output=True, text=True)
@@ -263,6 +282,59 @@ def google_image_urls(query: str, api_key: str, cx: str, n: int = 8) -> list[str
         ):
             urls.append(u)
     return urls
+
+
+def _pexels_best_portrait_file(video: dict) -> dict | None:
+    """Choisit le MEILLEUR fichier mp4 VERTICAL d'une vidéo Pexels : portrait (h>w), la plus
+    haute résolution <= 1920 (qualité sans télécharger un 4K inutile), sinon la plus petite dispo."""
+    files = [f for f in (video.get("video_files") or []) if f.get("file_type") == "video/mp4"]
+    portrait = [f for f in files if (f.get("height") or 0) > (f.get("width") or 0)]
+    cand = portrait or files
+    if not cand:
+        return None
+    capped = [f for f in cand if (f.get("height") or 0) <= 1920]
+    return (max(capped, key=lambda f: f.get("height") or 0) if capped
+            else min(cand, key=lambda f: f.get("height") or 0))
+
+
+def fetch_pexels_video(query: str, dest_dir: str, idx: int = 0,
+                       api_key: str = None, orientation: str = "portrait",
+                       per_page: int = 15) -> dict | None:
+    """Cherche une vidéo stock sur Pexels pour `query` et télécharge le 1er clip mp4 VERTICAL
+    exploitable dans `dest_dir`. Retourne {path, width, height, seconds, page} ou None (clé absente,
+    0 résultat, tous les téléchargements KO). Mots-clés simples et génériques marchent le mieux
+    (ex. 'hardware', 'server room', 'city night'). Le clip est renormalisé 9:16 en aval."""
+    api_key = api_key or API_KEYS.get("pexels_api_key")
+    if not api_key:
+        print("[pexels] clé absente (PEXELS_API_KEY)")
+        return None
+    try:
+        r = requests.get("https://api.pexels.com/videos/search",
+                         params={"query": query, "orientation": orientation,
+                                 "per_page": per_page, "size": "medium"},
+                         headers={"Authorization": api_key}, timeout=30)
+        r.raise_for_status()
+        videos = r.json().get("videos") or []
+    except Exception as e:
+        print(f"[pexels] recherche KO pour '{query}': {e}")
+        return None
+    os.makedirs(dest_dir, exist_ok=True)
+    out = os.path.join(dest_dir, f"pexels_{idx}.mp4")
+    for v in videos:
+        f = _pexels_best_portrait_file(v)
+        if not f or not f.get("link"):
+            continue
+        try:
+            download(f["link"], out)
+            if os.path.getsize(out) > 0:
+                print(f"[pexels '{query}'] clip {v.get('id')} {f.get('width')}x{f.get('height')} OK",
+                      flush=True)
+                return {"path": out, "width": f.get("width"), "height": f.get("height"),
+                        "seconds": v.get("duration"), "page": v.get("url")}
+        except Exception as e:
+            print(f"[pexels '{query}'] download KO ({f.get('link')}): {e}")
+            continue
+    return None
 
 
 def fetch_web_image(
@@ -483,6 +555,38 @@ def reframe_vertical(video_in: str, out: str, audio_in: str = None) -> str:
     return out
 
 
+def crop_to_vertical(img_path: str, out: str, ratio_w: int = 9, ratio_h: int = 16) -> str:
+    """Center-crop une image au ratio vertical demandé (9:16 par défaut). Le sujet des frames
+    d'établissement étant centré, un recadrage centré est sûr et donne une référence au format des
+    clips. Retourne `out`."""
+    from PIL import Image
+    with Image.open(img_path) as im:
+        im = im.convert("RGB")
+        w, h = im.size
+        target = ratio_w / ratio_h
+        if w / h > target:                      # trop large -> on rogne les côtés
+            nw = int(round(h * target)); x = (w - nw) // 2
+            im = im.crop((x, 0, x + nw, h))
+        else:                                    # trop haut -> on rogne haut/bas
+            nh = int(round(w / target)); y = (h - nh) // 2
+            im = im.crop((0, y, w, y + nh))
+        im.save(out, "JPEG", quality=92)
+    return out
+
+
+def broll_over_audio(broll_path: str, audio_path: str, out: str, target_dur: float = None) -> str:
+    """Calque une vidéo b-roll sur une piste AUDIO : le b-roll est BOUCLÉ pour couvrir toute la durée
+    de l'audio (la narration pilote la longueur), son propre son est ignoré, et le tout est normalisé
+    720x1280 30fps. Sert à donner la voix (native de l'avatar H3) à un b-roll stock (Pexels)."""
+    dur = target_dur or ffprobe_duration(audio_path)
+    sh(["ffmpeg", "-y", "-stream_loop", "-1", "-i", broll_path, "-i", audio_path,
+        "-map", "0:v:0", "-map", "1:a:0", "-t", f"{dur:.3f}",
+        "-vf", _VF, "-r", str(FPS),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-ar", "44100", "-ac", "2", out])
+    return out
+
+
 def image_to_clip(
     image_in: str, out: str, duration: float = 4.0, audio_in: str = None
 ) -> str:
@@ -518,25 +622,40 @@ def image_to_clip(
 # ========================
 # SOUS-TITRES — alignement ElevenLabs (Forced Alignment) + incrustation ffmpeg/libass
 # ========================
-def elevenlabs_forced_alignment(audio_path: str, transcript: str, api_key: str,
-                                base_url: str = None) -> list[dict]:
+def elevenlabs_forced_alignment(
+    audio_path: str, transcript: str, api_key: str, base_url: str = None
+) -> list[dict]:
     """Aligne un transcript DÉJÀ CONNU sur l'audio via ElevenLabs Forced Alignment
     (POST /v1/forced-alignment). Le texte étant l'input TTS exact, l'alignement est précis
     (ni transcription ni faute de mot). Retourne [{text, start, end}] au mot (secondes).
-    `base_url` = racine du provider ElevenLabs (comme le TTS) ; défaut api.elevenlabs.io."""
+    `base_url` = racine du provider ElevenLabs (comme le TTS) ; défaut api.elevenlabs.io.
+    """
     root = (base_url or "https://api.elevenlabs.io").rstrip("/")
     root = root.removesuffix("/v1")
     url = f"{root}/v1/forced-alignment"
     with open(audio_path, "rb") as fh:
         files = {"file": (os.path.basename(audio_path), fh, "audio/wav")}
-        r = requests.post(url, headers={"xi-api-key": api_key},
-                          files=files, data={"text": transcript}, timeout=180)
+        r = requests.post(
+            url,
+            headers={"xi-api-key": api_key},
+            files=files,
+            data={"text": transcript},
+            timeout=180,
+        )
     if r.status_code >= 400:
-        raise RuntimeError(f"ElevenLabs forced-alignment {r.status_code}: {r.text[:300]}")
+        raise RuntimeError(
+            f"ElevenLabs forced-alignment {r.status_code}: {r.text[:300]}"
+        )
     words = r.json().get("words") or []
-    return [{"text": (w.get("text") or "").strip(),
-             "start": float(w.get("start") or 0.0), "end": float(w.get("end") or 0.0)}
-            for w in words if (w.get("text") or "").strip()]
+    return [
+        {
+            "text": (w.get("text") or "").strip(),
+            "start": float(w.get("start") or 0.0),
+            "end": float(w.get("end") or 0.0),
+        }
+        for w in words
+        if (w.get("text") or "").strip()
+    ]
 
 
 def _srt_ts(t: float) -> str:
@@ -548,10 +667,12 @@ def _srt_ts(t: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def _group_captions(words: list[dict], max_chars: int = 24,
-                    max_dur: float = 1.6, max_gap: float = 0.6) -> list[list[dict]]:
+def _group_captions(
+    words: list[dict], max_chars: int = 24, max_dur: float = 1.6, max_gap: float = 0.6
+) -> list[list[dict]]:
     """Regroupe les mots alignés en légendes COURTES et punchy (format social).
-    Coupe sur : trop de caractères, légende trop longue, gros silence, ou ponctuation forte."""
+    Coupe sur : trop de caractères, légende trop longue, gros silence, ou ponctuation forte.
+    """
     captions, cur = [], []
     for w in words:
         if cur:
@@ -560,22 +681,30 @@ def _group_captions(words: list[dict], max_chars: int = 24,
             gap = w["start"] - cur[-1]["end"]
             hard_break = cur[-1]["text"][-1:] in ".!?…"
             if chars > max_chars or dur > max_dur or gap > max_gap or hard_break:
-                captions.append(cur); cur = []
+                captions.append(cur)
+                cur = []
         cur.append(w)
     if cur:
         captions.append(cur)
     return captions
 
 
-def words_to_srt(words: list[dict], out_path: str, max_chars: int = 24,
-                 max_dur: float = 1.6, max_gap: float = 0.6) -> str:
+def words_to_srt(
+    words: list[dict],
+    out_path: str,
+    max_chars: int = 24,
+    max_dur: float = 1.6,
+    max_gap: float = 0.6,
+) -> str:
     """Mots alignés -> fichier .srt (légendes courtes, MAJUSCULES). Pas de coloration au mot
     (le SRT ne la permet pas) : pour le karaoké mot-à-mot, cf. `words_to_ass`."""
     captions = _group_captions(words, max_chars, max_dur, max_gap)
     blocks = []
     for i, cap in enumerate(captions, 1):
         text = " ".join(x["text"] for x in cap).strip().upper()
-        blocks.append(f"{i}\n{_srt_ts(cap[0]['start'])} --> {_srt_ts(cap[-1]['end'])}\n{text}\n")
+        blocks.append(
+            f"{i}\n{_srt_ts(cap[0]['start'])} --> {_srt_ts(cap[-1]['end'])}\n{text}\n"
+        )
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(blocks))
     return out_path
@@ -602,9 +731,17 @@ def _hex_to_ass(hex_color: str) -> str:
     return f"&H00{b}{g}{r}".upper()
 
 
-def words_to_ass(words: list[dict], out_path: str, video_w: int = 720, video_h: int = 1280,
-                 base_color: str = "FFFFFF", highlight_color: str = "F5E003",
-                 max_chars: int = 16, max_dur: float = 1.6, max_gap: float = 0.6) -> str:
+def words_to_ass(
+    words: list[dict],
+    out_path: str,
+    video_w: int = 720,
+    video_h: int = 1280,
+    base_color: str = "FFFFFF",
+    highlight_color: str = "F5E003",
+    max_chars: int = 16,
+    max_dur: float = 1.6,
+    max_gap: float = 0.6,
+) -> str:
     """Mots alignés -> fichier .ass KARAOKÉ : le mot EN COURS de prononciation est colorié
     (`highlight_color`), le reste de la légende reste en `base_color`. Un event par mot (timings
     au mot de faster-whisper / ElevenLabs). Style social : gras, gros, contour noir, bas-centre,
@@ -623,11 +760,15 @@ def words_to_ass(words: list[dict], out_path: str, video_w: int = 720, video_h: 
         "ScaledBorderAndShadow: yes",
         "",
         "[V4+ Styles]",
-        ("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
-         "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
-         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"),
-        (f"Style: Default,Arial,{fontsize},{base},{base},&H00000000,&H00000000,-1,0,0,0,"
-         f"100,100,0,0,1,{outline},0,2,40,40,{margin_v},1"),
+        (
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
+            "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
+            "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"
+        ),
+        (
+            f"Style: Default,Arial,{fontsize},{base},{base},&H00000000,&H00000000,-1,0,0,0,"
+            f"100,100,0,0,1,{outline},0,2,40,40,{margin_v},1"
+        ),
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, Effect, Text",
@@ -635,41 +776,62 @@ def words_to_ass(words: list[dict], out_path: str, video_w: int = 720, video_h: 
     events = []
     for cap in caps:
         cap_end = cap[-1]["end"]
-        upwords = [w["text"].strip().upper().replace("{", "(").replace("}", ")") for w in cap]
+        upwords = [
+            w["text"].strip().upper().replace("{", "(").replace("}", ")") for w in cap
+        ]
         for i, w in enumerate(cap):
             seg_start = w["start"]
             seg_end = cap[i + 1]["start"] if i + 1 < len(cap) else cap_end
             if seg_end <= seg_start:
                 seg_end = seg_start + 0.05
-            parts = [(f"{{\\c{hl}&}}{wd}{{\\c{base}&}}" if j == i else wd)
-                     for j, wd in enumerate(upwords)]
+            parts = [
+                (f"{{\\c{hl}&}}{wd}{{\\c{base}&}}" if j == i else wd)
+                for j, wd in enumerate(upwords)
+            ]
             # Champs (8 avant Text) : Layer,Start,End,Style,Name,MarginL,MarginR,Effect,Text.
-            events.append(f"Dialogue: 0,{_ass_ts(seg_start)},{_ass_ts(seg_end)},"
-                          f"Default,,0,0,,{' '.join(parts)}")
+            events.append(
+                f"Dialogue: 0,{_ass_ts(seg_start)},{_ass_ts(seg_end)},"
+                f"Default,,0,0,,{' '.join(parts)}"
+            )
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(header + events) + "\n")
     return out_path
 
 
-def burn_subtitles(video_in: str, srt_path: str, out: str,
-                   font_size: int = 16, margin_v: int = 60) -> str:
+def burn_subtitles(
+    video_in: str, srt_path: str, out: str, font_size: int = 16, margin_v: int = 60
+) -> str:
     """Incruste les sous-titres SRT (libass) : bas-centre, gras, contour noir — lisible en 9:16.
     `margin_v` = marge basse (unités du script libass), `font_size` idem. À CALIBRER sur un vrai
-    rendu (les unités libass sont relatives à la résolution du script, pas aux pixels vidéo)."""
-    style = (f"Alignment=2,Fontsize={font_size},Bold=1,Outline=2,Shadow=0,MarginV={margin_v},"
-             "PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&")
+    rendu (les unités libass sont relatives à la résolution du script, pas aux pixels vidéo).
+    """
+    style = (
+        f"Alignment=2,Fontsize={font_size},Bold=1,Outline=2,Shadow=0,MarginV={margin_v},"
+        "PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&"
+    )
     # Échappement pour le filtre `subtitles` (les ':' et '\' du chemin cassent le parsing).
     esc = srt_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
-    sh(["ffmpeg", "-y", "-i", video_in,
-        "-vf", f"subtitles='{esc}':force_style='{style}'",
-        "-c:a", "copy", out])
+    sh(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            video_in,
+            "-vf",
+            f"subtitles='{esc}':force_style='{style}'",
+            "-c:a",
+            "copy",
+            out,
+        ]
+    )
     return out
 
 
 def burn_ass(video_in: str, ass_path: str, out: str) -> str:
     """Incruste un fichier .ass (libass) — porte son propre style (police, couleurs, karaoké au
     mot). Utilisé pour les sous-titres à mot colorié (cf. `words_to_ass`). Requiert un ffmpeg avec
-    libass (le résolveur route vers `ffmpeg-full` au besoin, cf. _resolve_ffmpeg_bin)."""
+    libass (le résolveur route vers `ffmpeg-full` au besoin, cf. _resolve_ffmpeg_bin).
+    """
     esc = ass_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
     sh(["ffmpeg", "-y", "-i", video_in, "-vf", f"ass='{esc}'", "-c:a", "copy", out])
     return out
@@ -678,8 +840,20 @@ def burn_ass(video_in: str, ass_path: str, out: str) -> str:
 def _probe_size(path: str) -> tuple[int, int]:
     """(largeur, hauteur) en px du 1er flux vidéo, via ffprobe. Défaut (720, 1280) si indisponible."""
     try:
-        p = sh(["ffprobe", "-v", "error", "-select_streams", "v:0",
-                "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", path])
+        p = sh(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=s=x:p=0",
+                path,
+            ]
+        )
         w, h = p.stdout.strip().split("x")[:2]
         return int(w), int(h)
     except Exception:
@@ -759,29 +933,38 @@ def synthesize_audio(
 
 def _is_inference_edit_model(model: str) -> bool:
     """Le modèle d'édition passe-t-il par l'endpoint INFERENCE brut (image_urls) au lieu de
-    l'API OpenAI images.edit ? (Wan2.7-Image-Edit : {prompt, image_urls} -> {images:[url]})."""
+    l'API OpenAI images.edit ? (Wan2.7-Image-Edit : {prompt, image_urls} -> {images:[url]}).
+    """
     return model.startswith(INFERENCE_EDIT_PREFIXES)
 
 
 def _edit_inference_endpoint(model_config: dict = None) -> tuple[str, str]:
     """(URL inference DeepInfra pour IMAGE_EDIT_MODEL, token). Le provider (base_url/token) vient du
-    rôle image_generator ; le MODÈLE reste IMAGE_EDIT_MODEL (le model_name du rôle porte le t2i)."""
+    rôle image_generator ; le MODÈLE reste IMAGE_EDIT_MODEL (le model_name du rôle porte le t2i).
+    """
     provider = (model_config or {}).get("provider") or {}
-    base = (provider.get("base_url") or "https://api.deepinfra.com/v1/openai").rstrip("/")
+    base = (provider.get("base_url") or "https://api.deepinfra.com/v1/openai").rstrip(
+        "/"
+    )
     root = base.removesuffix("/openai")
     token = provider.get("token") or API_KEYS["deepinfra_api_key"]
     return f"{root}/inference/{IMAGE_EDIT_MODEL}", token
 
 
-def _edit_background_inference(src_url: str, prompt: str, out: str, model_config: dict = None) -> str:
+def _edit_background_inference(
+    src_url: str, prompt: str, out: str, model_config: dict = None
+) -> str:
     """Édition de fond via l'endpoint inference (Wan). `src_url` DOIT être une URL publique : le
-    backend (DashScope) la télécharge. Renvoie une URL de sortie, qu'on rapatrie dans `out`."""
+    backend (DashScope) la télécharge. Renvoie une URL de sortie, qu'on rapatrie dans `out`.
+    """
     url, token = _edit_inference_endpoint(model_config)
     print(f"🎨 Édition d'image ({IMAGE_EDIT_MODEL}) via inference DeepInfra...")
     data = deepinfra_post(url, {"prompt": prompt, "image_urls": [src_url]}, token=token)
     images = data.get("images") or []
     if not images:
-        raise RuntimeError(f"{IMAGE_EDIT_MODEL}: réponse sans image ({json.dumps(data)[:200]})")
+        raise RuntimeError(
+            f"{IMAGE_EDIT_MODEL}: réponse sans image ({json.dumps(data)[:200]})"
+        )
     download(images[0], out)
     print(f"   ✅ {out}")
     return out
@@ -810,7 +993,8 @@ def prepare_scene_portrait(
     if _is_inference_edit_model(IMAGE_EDIT_MODEL):
         if not src_url:
             raise RuntimeError(
-                f"{IMAGE_EDIT_MODEL} édite depuis une URL publique : `src_url` manquant.")
+                f"{IMAGE_EDIT_MODEL} édite depuis une URL publique : `src_url` manquant."
+            )
         return _edit_background_inference(src_url, prompt, out, model_config)
 
     rgb = os.path.join(os.path.dirname(out) or ".", "_portrait_rgb.png")
@@ -1009,8 +1193,15 @@ def _media_image_url(media: list) -> str | None:
     return None
 
 
-def _sglang_broll(prompt: str, duration: int, seed: int, ref_url: str, dest: str,
-                  model_config: dict, ltx_params: dict = None) -> str:
+def _sglang_broll(
+    prompt: str,
+    duration: int,
+    seed: int,
+    ref_url: str,
+    dest: str,
+    model_config: dict,
+    ltx_params: dict = None,
+) -> str:
     """[B-roll] Génération AUDIOVISUELLE via l'endpoint vidéo async SGLang (MiniMax-H3 / LTX-2.5).
     `fl2va` si une image de réf est fournie (elle devient la 1re frame effective, frame_index 0),
     sinon `t2va`. L'audio natif du MP4 est REMPLACÉ par la narration TTS en aval (reframe_vertical),
@@ -1020,11 +1211,13 @@ def _sglang_broll(prompt: str, duration: int, seed: int, ref_url: str, dest: str
     base_url, token = provider["base_url"], provider.get("token")
     p = dict(ltx_params or {})
     dur = float(p.pop("duration_s", None) or duration)
-    dur = max(4.0, min(15.0, dur))                 # H3 / LTX-2.5 : durées 4–15 s inclusives
+    dur = max(4.0, min(15.0, dur))  # H3 / LTX-2.5 : durées 4–15 s inclusives
     conditions, task = [], "t2va"
     if ref_url:
-        task = "fl2va"                             # l'image = 1re frame effective du clip (i2v)
-        conditions = [{"type": "image", "uri": ref_url, "role": "keyframe", "frame_index": 0}]
+        task = "fl2va"  # l'image = 1re frame effective du clip (i2v)
+        conditions = [
+            {"type": "image", "uri": ref_url, "role": "keyframe", "frame_index": 0}
+        ]
     # short_edge imposé par le modèle (MiniMax-H3 exige 768) ; défaut = OUT_W. Le clip est de
     # toute façon renormalisé en 720x1280 en aval (reframe_vertical).
     short_edge = SGLANG_SHORT_EDGE.get(resolve_model_skill(model_config), OUT_W)
@@ -1034,7 +1227,11 @@ def _sglang_broll(prompt: str, duration: int, seed: int, ref_url: str, dest: str
         "seconds": int(round(dur)),
         "task": task,
         "conditions": conditions,
-        "target": {"short_edge": short_edge, "aspect_ratio": RATIO, "duration_seconds": dur},
+        "target": {
+            "short_edge": short_edge,
+            "aspect_ratio": RATIO,
+            "duration_seconds": dur,
+        },
         "num_outputs_per_prompt": 1,
         "num_inference_steps": int(p.pop("num_inference_steps", 50)),
         "flow_shift": float(p.pop("flow_shift", 12.0)),
@@ -1059,7 +1256,7 @@ def generate_minimax_video(
     seed: int = SEED_BASE,
     ref_url: str = None,
     aspect_ratio: str = RATIO,
-    num_inference_steps: int = 7,
+    num_inference_steps: int = 11,
     flow_shift: float = 12.0,
     audio_flow_shift: float = 3.0,
 ) -> str:
@@ -1068,16 +1265,20 @@ def generate_minimax_video(
     Ce déploiement ne sert QUE la tâche `ref2va` (avatar = référence d'identité, cadrage libre) :
     une image de référence (`ref_url`) est OBLIGATOIRE — pas de `t2va` (texte seul) ni `fl2va`
     (1re frame). `num_inference_steps` = points de grille sigma (zéro terminal inclus) => évaluations
-    = steps-1. Défaut 7 pour le LoRA turbo ref2v (6 évaluations, rendu moins « cheap »). base_url/token = provider du
+    = steps-1. Défaut 9 pour le LoRA turbo ref2v (8 évaluations, rendu moins « cheap »). base_url/token = provider du
     rôle video_generator du channel.
     """
     provider = model_config["provider"]
     base_url, token = provider["base_url"], provider.get("token")
     dur = max(5.0, min(15.0, float(seconds or 5)))
     if not ref_url:
-        raise ValueError("MiniMax-H3 ne sert que ref2va : une image de référence (ref_url) est "
-                         "obligatoire. Fournis un avatar/personnage avec image ou un reference_image.")
-    conditions = [{"type": "image", "uri": ref_url, "role": "reference"}]  # ref2va : référence d'identité
+        raise ValueError(
+            "MiniMax-H3 ne sert que ref2va : une image de référence (ref_url) est "
+            "obligatoire. Fournis un avatar/personnage avec image ou un reference_image."
+        )
+    conditions = [
+        {"type": "image", "uri": ref_url, "role": "reference"}
+    ]  # ref2va : référence d'identité
     short_edge = SGLANG_SHORT_EDGE.get(resolve_model_skill(model_config), 768)
     payload = {
         "model": model_config["model_name"],
@@ -1085,7 +1286,11 @@ def generate_minimax_video(
         "seconds": int(round(dur)),
         "task": "ref2va",
         "conditions": conditions,
-        "target": {"short_edge": short_edge, "aspect_ratio": aspect_ratio, "duration_seconds": dur},
+        "target": {
+            "short_edge": short_edge,
+            "aspect_ratio": aspect_ratio,
+            "duration_seconds": dur,
+        },
         "num_outputs_per_prompt": 1,
         "num_inference_steps": int(num_inference_steps),
         "flow_shift": float(flow_shift),
@@ -1095,17 +1300,65 @@ def generate_minimax_video(
     return sglang_video_client.generate(base_url, token, payload, dest)
 
 
+def generate_minimax_voice(narration_text: str, ref_url: str, dest_audio: str, model_config: dict,
+                           *, seed: int = None, num_inference_steps: int = None,
+                           seconds: float = None) -> tuple:
+    """Génère UNIQUEMENT la voix off, avec la VOIX NATIVE de l'avatar H3 (ref2va), SANS TTS ni clonage.
+    On rend un clip H3 RAPIDE (peu de steps — la vidéo est jetable, seul l'AUDIO compte) où l'avatar
+    dit `narration_text`, puis on EXTRAIT sa piste audio vers `dest_audio`. `seed` = TALKING_SEED par
+    défaut => même timbre que les plans avatar. Sert à donner la voix de l'avatar à un b-roll (Pexels).
+    Retourne (dest_audio, durée_sec). `ref_url` (image de l'avatar) est OBLIGATOIRE."""
+    if not ref_url:
+        raise ValueError("generate_minimax_voice: ref_url (image avatar) obligatoire pour la voix H3.")
+    # Peu de steps = rapide (vidéo jetable, seule la voix compte). Réglable par env MINIMAX_VOICE_STEPS
+    # si la voix est dégradée à 4 (monter à 6-8 au prix de la vitesse).
+    if num_inference_steps is None:
+        num_inference_steps = int(os.getenv("MINIMAX_VOICE_STEPS", "4"))
+    provider = model_config["provider"]
+    base_url, token = provider["base_url"], provider.get("token")
+    if seconds is None:                                   # ~2.3 mots/s + marge, borné H3 (5–15 s)
+        n_words = max(1, len(narration_text.split()))
+        seconds = max(5.0, min(15.0, n_words / 2.3 + 1.5))
+    short_edge = SGLANG_SHORT_EDGE.get(resolve_model_skill(model_config), 768)
+    prompt = (
+        "summary: A tight close-up of <Subject 1> speaking directly to camera, calm and clear.\n"
+        f'detailed_description: <Subject 1> looks at the camera and says, clearly and naturally: "{narration_text}"\n'
+        "overall_soundscape: one single clear speaking voice, quiet neutral room tone.\n"
+        "non_diegetic_music: none."
+    )
+    payload = {
+        "model": model_config["model_name"], "prompt": prompt,
+        "seconds": int(round(seconds)), "task": "ref2va",
+        "conditions": [{"type": "image", "uri": ref_url, "role": "reference"}],
+        "target": {"short_edge": short_edge, "aspect_ratio": RATIO, "duration_seconds": float(seconds)},
+        "num_outputs_per_prompt": 1, "num_inference_steps": int(num_inference_steps),
+        "flow_shift": 12.0, "audio_flow_shift": 3.0,
+        "seed": int(TALKING_SEED if seed is None else seed),
+    }
+    tmp_mp4 = dest_audio + ".src.mp4"
+    sglang_video_client.generate(base_url, token, payload, tmp_mp4)
+    sh(["ffmpeg", "-y", "-i", tmp_mp4, "-vn", "-c:a", "aac", "-b:a", "160k", dest_audio])
+    dur = ffprobe_duration(dest_audio)
+    try:
+        os.remove(tmp_mp4)
+    except OSError:
+        pass
+    return dest_audio, dur
+
+
 def _minimax_image_size(aspect_ratio: str = RATIO, short_edge: int = 768) -> str:
     """`aspect_ratio` (ex. '9:16') -> 'WxH' calé sur `short_edge` (défaut 768)."""
     try:
         a, b = (int(x) for x in aspect_ratio.split(":"))
     except Exception:
         a, b = 9, 16
-    if a <= b:                                          # portrait / carré : le petit côté = largeur
+    if a <= b:  # portrait / carré : le petit côté = largeur
         w, h = short_edge, round(short_edge * b / a)
-    else:                                               # paysage : le petit côté = hauteur
+    else:  # paysage : le petit côté = hauteur
         w, h = round(short_edge * a / b), short_edge
-    snap = lambda x: max(32, int(round(x / 32)) * 32)   # dims multiples de 32 (contrainte diffusion)
+    snap = lambda x: max(
+        32, int(round(x / 32)) * 32
+    )  # dims multiples de 32 (contrainte diffusion)
     return f"{snap(w)}x{snap(h)}"
 
 
@@ -1121,8 +1374,11 @@ def generate_minimax_image(
     """Génère une image (avatar / 1re frame) -> chemin local. NB : MiniMax-H3 ne fait PAS de
     text->image sur la partition ref2va (l'endpoint image de SGLang ne fixe pas de `task` et ref2va
     exige une référence). On délègue donc au t2i du rôle `image_generator` du channel (FLUX/SD3.5 via
-    DeepInfra, cf. text_to_image). `seed`/`num_inference_steps` non exposés par ce backend -> ignorés."""
-    return text_to_image(prompt, dest, size=_minimax_image_size(aspect_ratio), model_config=model_config)
+    DeepInfra, cf. text_to_image). `seed`/`num_inference_steps` non exposés par ce backend -> ignorés.
+    """
+    return text_to_image(
+        prompt, dest, size=_minimax_image_size(aspect_ratio), model_config=model_config
+    )
 
 
 def edit_minimax_image(
@@ -1137,12 +1393,18 @@ def edit_minimax_image(
 ) -> str:
     """Édite/retouche une image -> chemin local. Même raison que generate_minimax_image : on passe par
     le rôle `image_generator` (IMAGE_EDIT_MODEL, OpenAI images.edit — FLUX Kontext / Qwen-Image-Edit),
-    pas par H3. `mask_path`/`seed`/`num_inference_steps` non exposés par ce backend -> ignorés."""
+    pas par H3. `mask_path`/`seed`/`num_inference_steps` non exposés par ce backend -> ignorés.
+    """
     rgb = os.path.join(os.path.dirname(dest) or ".", "_edit_src_rgb.png")
     to_rgb(image_path, rgb)
     client = _image_client(model_config)
-    resp = client.images.edit(model=IMAGE_EDIT_MODEL, image=open(rgb, "rb"), prompt=prompt, n=1,
-                              size="1024x1024")
+    resp = client.images.edit(
+        model=IMAGE_EDIT_MODEL,
+        image=open(rgb, "rb"),
+        prompt=prompt,
+        n=1,
+        size="1024x1024",
+    )
     with open(dest, "wb") as f:
         f.write(base64.b64decode(resp.data[0].b64_json))
     return dest
@@ -1185,7 +1447,9 @@ def generate_broll(
 
     # Endpoint vidéo async SGLang (MiniMax-H3 / LTX-2.5, serveur distant) : audiovisuel via /v1/videos.
     if uses_sglang_video(model_config):
-        return _sglang_broll(prompt, duration, seed, ref_url, dest, model_config, ltx_params)
+        return _sglang_broll(
+            prompt, duration, seed, ref_url, dest, model_config, ltx_params
+        )
 
     if VIDEO_BACKEND_CONFIG["use_ltx_broll"] or _is_ltx_provider(model_config):
         p = dict(ltx_params or {})
