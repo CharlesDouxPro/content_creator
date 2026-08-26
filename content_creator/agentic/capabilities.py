@@ -45,6 +45,9 @@ IMAGE_T2I_MODEL = os.getenv("IMAGE_T2I_MODEL", "stabilityai/sd3.5")
 IMAGE_EDIT_MODEL = os.getenv("IMAGE_EDIT_MODEL", "Wan-AI/Wan2.7-Image-Edit")
 # Modèles d'édition à router vers l'endpoint inference (image_urls) plutôt que vers images.edit.
 INFERENCE_EDIT_PREFIXES = ("Wan-AI/",)
+# Limite DUR du prompt d'édition côté DeepInfra (Wan2.7-Image-Edit -> 422 "string_too_long" au-delà
+# de 2100 caractères). On garde une petite marge de sécurité.
+IMAGE_EDIT_PROMPT_MAX = 2000
 # Rétro-compat : anciens noms (surchargeables par les mêmes env).
 KONTEXT_MODEL = IMAGE_EDIT_MODEL
 FLUX_T2I_MODEL = IMAGE_T2I_MODEL
@@ -284,59 +287,6 @@ def google_image_urls(query: str, api_key: str, cx: str, n: int = 8) -> list[str
     return urls
 
 
-def _pexels_best_portrait_file(video: dict) -> dict | None:
-    """Choisit le MEILLEUR fichier mp4 VERTICAL d'une vidéo Pexels : portrait (h>w), la plus
-    haute résolution <= 1920 (qualité sans télécharger un 4K inutile), sinon la plus petite dispo."""
-    files = [f for f in (video.get("video_files") or []) if f.get("file_type") == "video/mp4"]
-    portrait = [f for f in files if (f.get("height") or 0) > (f.get("width") or 0)]
-    cand = portrait or files
-    if not cand:
-        return None
-    capped = [f for f in cand if (f.get("height") or 0) <= 1920]
-    return (max(capped, key=lambda f: f.get("height") or 0) if capped
-            else min(cand, key=lambda f: f.get("height") or 0))
-
-
-def fetch_pexels_video(query: str, dest_dir: str, idx: int = 0,
-                       api_key: str = None, orientation: str = "portrait",
-                       per_page: int = 15) -> dict | None:
-    """Cherche une vidéo stock sur Pexels pour `query` et télécharge le 1er clip mp4 VERTICAL
-    exploitable dans `dest_dir`. Retourne {path, width, height, seconds, page} ou None (clé absente,
-    0 résultat, tous les téléchargements KO). Mots-clés simples et génériques marchent le mieux
-    (ex. 'hardware', 'server room', 'city night'). Le clip est renormalisé 9:16 en aval."""
-    api_key = api_key or API_KEYS.get("pexels_api_key")
-    if not api_key:
-        print("[pexels] clé absente (PEXELS_API_KEY)")
-        return None
-    try:
-        r = requests.get("https://api.pexels.com/videos/search",
-                         params={"query": query, "orientation": orientation,
-                                 "per_page": per_page, "size": "medium"},
-                         headers={"Authorization": api_key}, timeout=30)
-        r.raise_for_status()
-        videos = r.json().get("videos") or []
-    except Exception as e:
-        print(f"[pexels] recherche KO pour '{query}': {e}")
-        return None
-    os.makedirs(dest_dir, exist_ok=True)
-    out = os.path.join(dest_dir, f"pexels_{idx}.mp4")
-    for v in videos:
-        f = _pexels_best_portrait_file(v)
-        if not f or not f.get("link"):
-            continue
-        try:
-            download(f["link"], out)
-            if os.path.getsize(out) > 0:
-                print(f"[pexels '{query}'] clip {v.get('id')} {f.get('width')}x{f.get('height')} OK",
-                      flush=True)
-                return {"path": out, "width": f.get("width"), "height": f.get("height"),
-                        "seconds": v.get("duration"), "page": v.get("url")}
-        except Exception as e:
-            print(f"[pexels '{query}'] download KO ({f.get('link')}): {e}")
-            continue
-    return None
-
-
 def fetch_web_image(
     query: str, dest_dir: str, idx: int = 0, max_candidates: int = 8
 ) -> str | None:
@@ -574,16 +524,16 @@ def crop_to_vertical(img_path: str, out: str, ratio_w: int = 9, ratio_h: int = 1
     return out
 
 
-def broll_over_audio(broll_path: str, audio_path: str, out: str, target_dur: float = None) -> str:
-    """Calque une vidéo b-roll sur une piste AUDIO : le b-roll est BOUCLÉ pour couvrir toute la durée
-    de l'audio (la narration pilote la longueur), son propre son est ignoré, et le tout est normalisé
-    720x1280 30fps. Sert à donner la voix (native de l'avatar H3) à un b-roll stock (Pexels)."""
-    dur = target_dur or ffprobe_duration(audio_path)
-    sh(["ffmpeg", "-y", "-stream_loop", "-1", "-i", broll_path, "-i", audio_path,
-        "-map", "0:v:0", "-map", "1:a:0", "-t", f"{dur:.3f}",
-        "-vf", _VF, "-r", str(FPS),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-ar", "44100", "-ac", "2", out])
+def trim_video(src: str, out: str, seconds: float = 4.0, start: float = 0.0) -> str:
+    """Coupe un clip à `seconds` s max (borné 0.5–5 s) à partir de `start` — pour des b-rolls
+    COURTS et dynamiques (évite les longs plans stock qui cassent le rythme). Ré-encode, garde
+    l'éventuel audio d'ambiance. Retourne `out` (peut être == `src`, on passe par un temporaire)."""
+    seconds = max(0.5, min(5.0, float(seconds)))
+    tmp = out + ".trim.mp4" if os.path.abspath(out) == os.path.abspath(src) else out
+    sh(["ffmpeg", "-y", "-ss", f"{max(0.0, start):.2f}", "-i", src, "-t", f"{seconds:.2f}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", tmp])
+    if tmp != out:
+        os.replace(tmp, out)
     return out
 
 
@@ -970,6 +920,18 @@ def _edit_background_inference(
     return out
 
 
+def _cap_edit_prompt(prompt: str, limit: int = IMAGE_EDIT_PROMPT_MAX) -> str:
+    """Garantit un prompt d'édition <= `limit` caractères (l'API refuse au-delà). On tronque le
+    MILIEU en gardant tête + queue : la tête ancre l'identité ("Keep the FACE…"), la queue porte les
+    contraintes finales ("keep the identity … EXACTLY the same"). Filet de sécurité pour TOUS les
+    appelants ; les callers peuvent tronquer plus finement en amont (ex. couper l'apparence)."""
+    if len(prompt) <= limit:
+        return prompt
+    keep = limit - 1                       # place pour le "…" de jointure
+    head = keep * 2 // 3
+    return prompt[:head].rstrip() + "…" + prompt[-(keep - head):].lstrip()
+
+
 def prepare_scene_portrait(
     regen: bool = False,
     src: str = AVATAR_LOCAL,
@@ -989,6 +951,8 @@ def prepare_scene_portrait(
     if os.path.exists(out) and not regen:
         print(f"♻️  Réutilise {out}")
         return out
+
+    prompt = _cap_edit_prompt(prompt)      # filet de sécurité : borne DUR la longueur du prompt
 
     if _is_inference_edit_model(IMAGE_EDIT_MODEL):
         if not src_url:
@@ -1298,52 +1262,6 @@ def generate_minimax_video(
         "seed": int(seed),
     }
     return sglang_video_client.generate(base_url, token, payload, dest)
-
-
-def generate_minimax_voice(narration_text: str, ref_url: str, dest_audio: str, model_config: dict,
-                           *, seed: int = None, num_inference_steps: int = None,
-                           seconds: float = None) -> tuple:
-    """Génère UNIQUEMENT la voix off, avec la VOIX NATIVE de l'avatar H3 (ref2va), SANS TTS ni clonage.
-    On rend un clip H3 RAPIDE (peu de steps — la vidéo est jetable, seul l'AUDIO compte) où l'avatar
-    dit `narration_text`, puis on EXTRAIT sa piste audio vers `dest_audio`. `seed` = TALKING_SEED par
-    défaut => même timbre que les plans avatar. Sert à donner la voix de l'avatar à un b-roll (Pexels).
-    Retourne (dest_audio, durée_sec). `ref_url` (image de l'avatar) est OBLIGATOIRE."""
-    if not ref_url:
-        raise ValueError("generate_minimax_voice: ref_url (image avatar) obligatoire pour la voix H3.")
-    # Peu de steps = rapide (vidéo jetable, seule la voix compte). Réglable par env MINIMAX_VOICE_STEPS
-    # si la voix est dégradée à 4 (monter à 6-8 au prix de la vitesse).
-    if num_inference_steps is None:
-        num_inference_steps = int(os.getenv("MINIMAX_VOICE_STEPS", "4"))
-    provider = model_config["provider"]
-    base_url, token = provider["base_url"], provider.get("token")
-    if seconds is None:                                   # ~2.3 mots/s + marge, borné H3 (5–15 s)
-        n_words = max(1, len(narration_text.split()))
-        seconds = max(5.0, min(15.0, n_words / 2.3 + 1.5))
-    short_edge = SGLANG_SHORT_EDGE.get(resolve_model_skill(model_config), 768)
-    prompt = (
-        "summary: A tight close-up of <Subject 1> speaking directly to camera, calm and clear.\n"
-        f'detailed_description: <Subject 1> looks at the camera and says, clearly and naturally: "{narration_text}"\n'
-        "overall_soundscape: one single clear speaking voice, quiet neutral room tone.\n"
-        "non_diegetic_music: none."
-    )
-    payload = {
-        "model": model_config["model_name"], "prompt": prompt,
-        "seconds": int(round(seconds)), "task": "ref2va",
-        "conditions": [{"type": "image", "uri": ref_url, "role": "reference"}],
-        "target": {"short_edge": short_edge, "aspect_ratio": RATIO, "duration_seconds": float(seconds)},
-        "num_outputs_per_prompt": 1, "num_inference_steps": int(num_inference_steps),
-        "flow_shift": 12.0, "audio_flow_shift": 3.0,
-        "seed": int(TALKING_SEED if seed is None else seed),
-    }
-    tmp_mp4 = dest_audio + ".src.mp4"
-    sglang_video_client.generate(base_url, token, payload, tmp_mp4)
-    sh(["ffmpeg", "-y", "-i", tmp_mp4, "-vn", "-c:a", "aac", "-b:a", "160k", dest_audio])
-    dur = ffprobe_duration(dest_audio)
-    try:
-        os.remove(tmp_mp4)
-    except OSError:
-        pass
-    return dest_audio, dur
 
 
 def _minimax_image_size(aspect_ratio: str = RATIO, short_edge: int = 768) -> str:

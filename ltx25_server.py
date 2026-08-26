@@ -19,15 +19,15 @@ Chemins des composants : soit via LTX25_MODELS_DIR (défauts ci-dessous), soit s
 un par un (LTX25_TRANSFORMER, LTX25_TEXT_ENCODER, ...). Voir install_ltx25.sh.
 """
 
-import os
 import inspect
+import os
 import threading
 import traceback
 import uuid
 
 import requests
 import uvicorn
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -58,12 +58,12 @@ os.makedirs(JOBS_DIR, exist_ok=True)
 # Chargement UNIQUE du pipeline distilled.
 # ---------------------------------------------------------------------------
 print("==> Chargement du pipeline LTX-2.5 (distilled)…", flush=True)
-from ltx_pipelines.distilled import DistilledPipeline           # noqa: E402
-from ltx_pipelines.utils.model_paths import ModelPaths          # noqa: E402
-from ltx_pipelines.utils.media_io import encode_video           # noqa: E402
-from ltx_pipelines.utils.args import ImageConditioningInput     # noqa: E402
-from ltx_pipelines.utils.types import DEFAULT_AUTO_DURATION     # noqa: E402
-from ltx_core.model.video_vae import get_video_chunks_number    # noqa: E402
+from ltx_core.model.video_vae import get_video_chunks_number
+from ltx_pipelines.distilled import DistilledPipeline
+from ltx_pipelines.utils.args import ImageConditioningInput
+from ltx_pipelines.utils.media_io import encode_video
+from ltx_pipelines.utils.model_paths import ModelPaths
+from ltx_pipelines.utils.types import DEFAULT_AUTO_DURATION
 
 # On imprime les signatures réelles (elles varient selon la version installée) pour
 # diagnostiquer sans deviner.
@@ -166,8 +166,7 @@ def _localize(uri: str) -> str | None:
         r = requests.get(uri, timeout=120, stream=True)
         r.raise_for_status()
         with open(dest, "wb") as f:
-            for chunk in r.iter_content(8192):
-                f.write(chunk)
+            f.writelines(r.iter_content(8192))
         return dest
     return uri                                    # chemin local nu
 

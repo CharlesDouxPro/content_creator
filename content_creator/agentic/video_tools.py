@@ -20,6 +20,13 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
+from content_creator.agentic.asset_library import (
+    asset_key,
+    library_add,
+    library_find,
+    library_get,
+    library_list,
+)
 from content_creator.agentic.capabilities import (
     BACKGROUND_TEMPLATE,
     ESTABLISH_TEMPLATE,
@@ -29,19 +36,16 @@ from content_creator.agentic.capabilities import (
     TALKING_SEED,
     Ctx,
     _probe_size,
-    broll_over_audio,
     burn_ass,
     burn_subtitles,
     concat_clips,
     crop_to_vertical,
     download,
     elevenlabs_forced_alignment,
-    fetch_pexels_video,
     fetch_web_image,
     ffprobe_duration,
     generate_broll,
     generate_lipsync,
-    generate_minimax_voice,
     image_to_clip,
     is_image_path,
     prepare_scene_portrait,
@@ -817,7 +821,8 @@ def generate_minimax_video(
         "description": "Generate an IMAGE (text-to-image), e.g. to create an AVATAR or a first frame, then "
         "feed it to generate_minimax_video via `reference_image`. Renders immediately and "
         "returns the local path + a public url. Write the prompt in English. (Uses the "
-        "channel's image engine — MiniMax-H3 itself does not do standalone text-to-image.)",
+        "channel's image engine — MiniMax-H3 itself does not do standalone text-to-image.) An image "
+        "already generated with the SAME prompt is REUSED for free; pass `force_new=true` to regenerate.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -829,14 +834,28 @@ def generate_minimax_video(
                     "type": "string",
                     "description": "Optional: 9:16 (default), 16:9, 1:1, 4:3, 3:4.",
                 },
+                "force_new": {
+                    "type": "boolean",
+                    "description": "Optional. Regenerate even if a saved image exists for this exact "
+                    "prompt (default false = reuse the saved one, free).",
+                },
             },
             "required": ["prompt"],
         },
     }
 )
 def generate_minimax_image_tool(
-    session: VideoSession, prompt: str, aspect_ratio: str = "9:16"
+    session: VideoSession, prompt: str, aspect_ratio: str = "9:16",
+    force_new: bool = False
 ) -> dict:
+    # RÉUTILISATION (gratuit) : une image générée avec le MÊME prompt existe déjà en bibliothèque.
+    key_desc = f"{aspect_ratio}|{prompt}"
+    if not force_new:
+        hit = library_find("image", None, key_desc)
+        if hit:
+            return {"status": "ok", "local_path": None, "url": hit["url"], "reused": True,
+                    "note": "Reused a SAVED image with the same prompt (no generation — free). "
+                            "Pass `url` as `reference_image`. `force_new=true` to regenerate."}
     mc = (session.models or {}).get(
         "image_generator"
     ) or {}  # t2i engine (FLUX/SD3.5); global DeepInfra key if absent
@@ -851,8 +870,9 @@ def generate_minimax_image_tool(
         seed=SEED_BASE + idx,
     )
     try:
+        aid = asset_key("image", None, key_desc)       # nom de fichier unique par prompt
         url = upload_public(
-            session.ctx.gcs, dest, f"media/test/minimax_img_{idx + 1}.png"
+            session.ctx.gcs, dest, f"media/test/minimax_img_{aid}.png"
         )
     except Exception as e:
         return {
@@ -862,11 +882,13 @@ def generate_minimax_image_tool(
             "note": f"image generated locally but public upload failed ({e}); usable as a local "
             "reference_image only if the video server can reach this path.",
         }
+    library_add("image", key_desc, url, prompt=prompt)  # sauvegarde permanente (réutilisable)
     return {
         "status": "ok",
         "local_path": dest,
         "url": url,
-        "note": "pass `url` as `reference_image` of generate_minimax_video.",
+        "reused": False,
+        "note": "pass `url` as `reference_image` of generate_minimax_video (also saved to the library).",
     }
 
 
@@ -1144,135 +1166,6 @@ def search_web_image(session: VideoSession, query: str) -> dict:
     }
 
 
-@tool(
-    {
-        "name": "search_pexels_video",
-        "description": "Find and download a READY-MADE vertical stock VIDEO (b-roll) from Pexels by a "
-        "SIMPLE keyword, INSTEAD of generating one — faster, cheaper, and clean footage. Use it for "
-        "GENERIC illustrative shots (e.g. keyword 'hardware' to show tech components, 'server room', "
-        "'city night', 'ocean waves', 'coding screen'). Prefer SIMPLE 1-3 word English keywords "
-        "describing the VISIBLE subject, not a full sentence. ON SUCCESS returns a local `source` "
-        "(.mp4, vertical) : add it to the edit with `add_media_clip(source=<source>)` — pass "
-        "`narration_text` there to lay a VOICE-OVER on top, or leave it empty to keep the clip's own "
-        "ambience. Reserve real GENERATION for specific/branded/identity shots; use Pexels for generic "
-        "b-roll. ON FAILURE (status=error): simplify the keyword, or generate the shot instead.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Simple visual keyword(s) in English, 1-3 words "
-                    "(e.g. 'hardware', 'server room', 'city traffic night', 'ocean waves').",
-                },
-            },
-            "required": ["query"],
-        },
-    }
-)
-def search_pexels_video(session: VideoSession, query: str) -> dict:
-    idx = len(session.fetched_images)
-    res = fetch_pexels_video(query, session.output_dir, idx=idx)
-    if not res:
-        return {
-            "status": "error",
-            "error": f'no Pexels video found for "{query}". Simplify to a generic 1-2 word keyword '
-            "(e.g. 'hardware', 'city night'), or GENERATE the b-roll instead.",
-        }
-    session.fetched_images.append(
-        res["path"]
-    )  # supprimé en fin de vidéo (cleanup_fetched_images)
-    return {
-        "status": "ok",
-        "query": query,
-        "source": res["path"],
-        "width": res.get("width"),
-        "height": res.get("height"),
-        "seconds": res.get("seconds"),
-        "page": res.get("page"),
-        "note": "Vertical stock clip downloaded. Put it in the timeline with "
-        "add_media_clip(source=<source>); add `narration_text` there for a voice-over, or "
-        "leave it empty to keep the clip's ambience. Deleted at the end of the video.",
-    }
-
-
-@tool(
-    {
-        "name": "broll_with_avatar_voice",
-        "description": "Make a B-ROLL cutaway that speaks in YOUR AVATAR'S OWN VOICE — same voice as the "
-        "talking-head shots, no TTS, no voice mismatch. It fetches a vertical stock clip from "
-        "Pexels for `query`, generates the narration AUDIO with MiniMax-H3 in the avatar's native "
-        "voice (fast, low-step — the H3 video is discarded, only its voice is kept), and lays the "
-        "Pexels footage over that voice. Pexels fetch and voice generation run IN PARALLEL. Returns "
-        "a local `source`: add it with `add_media_clip(source=<source>)` and NO `narration_text` "
-        "(the avatar voice is already baked in). Use this for illustrative cutaways that must still "
-        "sound like the presenter, INSTEAD of generating a whole avatar clip for a generic shot. "
-        "Requires a `character` that has an image (it supplies the voice identity).",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Simple visual keyword(s) for the Pexels b-roll, 1-3 "
-                    "words in English (e.g. 'hardware', 'server room', 'city night').",
-                },
-                "narration_text": {
-                    "type": "string",
-                    "description": "The exact voice-over line the avatar speaks "
-                    "over the b-roll (in the video's language). Keep it to one short sentence.",
-                },
-                **_CHARACTER_PROP,
-            },
-            "required": ["query", "narration_text"],
-        },
-    }
-)
-def broll_with_avatar_voice(
-    session: VideoSession, query: str, narration_text: str, character: str = None
-) -> dict:
-    _, char = _resolve_character(session, character)
-    ref = char.get("portrait_url")
-    if not ref:
-        return {
-            "status": "error",
-            "error": "broll_with_avatar_voice needs a `character` that has an "
-            "image (its native H3 voice is the voice-over identity). Pass such a character.",
-        }
-    mc = (session.models or {}).get("video_generator") or {}
-    if not (mc.get("provider") or {}).get("base_url"):
-        return {
-            "status": "error",
-            "error": "no video engine configured (video_generator provider)",
-        }
-    idx = len(session.fetched_images)
-    d = session.output_dir
-    audio_path = os.path.join(d, f"broll_voice_{idx}.m4a")
-    # Pexels (visuel) ‖ voix native H3 (audio) EN PARALLÈLE.
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        f_pex = ex.submit(fetch_pexels_video, query, d, idx=idx)
-        f_voice = ex.submit(generate_minimax_voice, narration_text, ref, audio_path, mc)
-        pex = f_pex.result()
-        _, dur = f_voice.result()
-    if not pex:
-        return {
-            "status": "error",
-            "error": f'no Pexels video for "{query}" — simplify the keyword.',
-        }
-    final = os.path.join(d, f"broll_avatarvoice_{idx + 1}.mp4")
-    broll_over_audio(
-        pex["path"], audio_path, final
-    )  # calque le b-roll sur la voix (durée = voix)
-    session.fetched_images += [pex["path"], audio_path]  # supprimés en fin de vidéo
-    return {
-        "status": "ok",
-        "query": query,
-        "source": final,
-        "seconds": round(dur, 1),
-        "note": "B-roll with the avatar's NATIVE voice baked in. Put it in the timeline with "
-        "add_media_clip(source=<source>) and NO narration_text (voice already present). "
-        "Deleted at the end of the video.",
-    }
-
-
 # ========================
 # TOOLS — écriture du script
 # ========================
@@ -1359,7 +1252,9 @@ def load_style_skill(session: VideoSession, name: str) -> dict:
         "name": "set_scene_background",
         "description": "Places a CHARACTER in a coherent BACKGROUND (FLUX Kontext), preserving their "
         "identity. Updates the character's portrait: their next shots (facing camera / "
-        "b-roll) will use this background. Call it BEFORE planning the character's shots.",
+        "b-roll) will use this background. Call it BEFORE planning the character's shots. If the SAME "
+        "character + background was already generated in a PAST run, it is REUSED for free; pass "
+        "`force_new=true` to force a fresh one.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -1373,15 +1268,29 @@ def load_style_skill(session: VideoSession, name: str) -> dict:
                     "the context (e.g. 'football stadium at sunset', 'clean TV studio'). "
                     "Do NOT describe the person.",
                 },
+                "force_new": {
+                    "type": "boolean",
+                    "description": "Optional. Regenerate even if a saved background exists for this "
+                    "character + description (default false = reuse the saved one, free).",
+                },
             },
             "required": ["character", "description"],
         },
     }
 )
 def set_scene_background(
-    session: VideoSession, character: str, description: str
+    session: VideoSession, character: str, description: str, force_new: bool = False
 ) -> dict:
     _, char = _resolve_character(session, character)
+    # RÉUTILISATION (gratuit) : même personnage + même décor déjà en bibliothèque -> on le reprend.
+    if not force_new:
+        hit = library_find("background", character, description)
+        if hit:
+            session.characters[character]["portrait_url"] = hit["url"]
+            return {"status": "ok", "character": character, "scene": description,
+                    "reused": True, "reference": hit["url"],
+                    "note": "Reused a SAVED background from the library (no generation — free). "
+                            "Pass `force_new=true` to regenerate."}
     local = char.get("local_image")
     if not local:
         return {
@@ -1409,15 +1318,87 @@ def set_scene_background(
         model_config=(session.models or {}).get("image_generator"),
         src_url=src_url,
     )
-    url = upload_public(session.ctx.gcs, scene, f"media/test/scene_{character}.jpg")
+    aid = asset_key("background", character, description)   # nom unique par (perso, décor)
+    url = upload_public(session.ctx.gcs, scene, f"media/test/scene_{character}_{aid}.jpg")
+    # SAUVEGARDE PERMANENTE -> réutilisable gratuitement dans les prochains runs.
+    library_add("background", description, url, prompt=prompt, character=character)
     # Met à jour le portrait du personnage -> ses prochains plans utiliseront ce décor.
     session.characters[character]["portrait_url"] = url
     return {
         "status": "ok",
         "character": character,
         "scene": description,
-        "note": "background applied to the character; their next shots will use it",
+        "reused": False,
+        "note": "background generated, SAVED to the library (reusable next runs) and applied to the "
+        "character; their next shots will use it",
     }
+
+
+@tool(
+    {
+        "name": "list_saved_backgrounds",
+        "description": "List the SAVED backgrounds / establishing frames from the persistent asset "
+        "library (kept across runs). Call it BEFORE generating a background/scene: if a suitable one "
+        "already exists, REUSE it with `use_saved_background` instead of paying for a new generation. "
+        "Returns entries with their `id`, `kind`, `character` and `description`.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "character": {
+                    "type": "string",
+                    "description": "Optional: only list assets saved for this character.",
+                },
+            },
+        },
+    }
+)
+def list_saved_backgrounds(session: VideoSession, character: str = None) -> dict:
+    items = [a for a in library_list(character=character)
+             if a.get("kind") in ("background", "establish")]
+    return {"status": "ok", "count": len(items),
+            "assets": [{"id": a["id"], "kind": a["kind"], "character": a.get("character"),
+                        "description": a.get("description")} for a in items],
+            "note": "Reuse one with use_saved_background(background_id=<id>, character=<name>) — free."}
+
+
+@tool(
+    {
+        "name": "use_saved_background",
+        "description": "REUSE a saved background / establishing frame from the library (no generation — "
+        "free) and PIN it as the given character's reference for the run. Get an `id` from "
+        "`list_saved_backgrounds`. Their next shots will use this image.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "background_id": {
+                    "type": "string",
+                    "description": "The `id` of the saved asset (from list_saved_backgrounds).",
+                },
+                "character": {
+                    "type": "string",
+                    "description": "Character to pin this background/reference onto for the run.",
+                },
+            },
+            "required": ["background_id", "character"],
+        },
+    }
+)
+def use_saved_background(session: VideoSession, background_id: str, character: str) -> dict:
+    entry = library_get(background_id)
+    if not entry:
+        return {"status": "error", "error": f"no saved asset with id '{background_id}' "
+                "(use list_saved_backgrounds to get valid ids)."}
+    if character not in (session.characters or {}):
+        return {"status": "error", "error": f"unknown character '{character}'."}
+    session.characters[character]["portrait_url"] = entry["url"]
+    try:
+        out = os.path.join(session.output_dir, f"reused_{character}.jpg")
+        session.characters[character]["local_image"] = download(entry["url"], out)
+    except Exception:
+        pass
+    return {"status": "ok", "character": character, "reference": entry["url"],
+            "description": entry.get("description"),
+            "note": "Saved asset reused and pinned as the character reference (no generation). Plan shots now."}
 
 
 @tool(
@@ -1425,11 +1406,13 @@ def set_scene_background(
         "name": "establish_avatar_scene",
         "description": "Generate ONCE a canonical ESTABLISHING frame of the character — same face, dressed "
         "in SIMPLE reproducible clothes, in a coherent location — and PIN it as the reference for "
-        "the WHOLE run. Every following `generate_minimax_video` / `broll_with_avatar_voice` then "
+        "the WHOLE run. Every following `generate_minimax_video` then "
         "reuses this exact frame, so the model no longer re-invents hair, wardrobe, worn gear or "
         "setting from clip to clip (this is the strongest fix for a drifting avatar). Call it ONCE "
         "at the very START, right after picking the avatar and before planning any shot. The clothes "
-        "are forced to be plain/solid-color/logo-free so the AI reproduces them reliably.",
+        "are forced to be plain/solid-color/logo-free so the AI reproduces them reliably. If the SAME "
+        "character + scene was already established in a PAST run, it is REUSED for free (no generation); "
+        "pass `force_new=true` to force a fresh one.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -1443,13 +1426,34 @@ def set_scene_background(
                     "(e.g. 'a clean modern podcast studio, neutral wall', 'a tech workshop, soft light'). "
                     "Keep it simple and uncluttered. Do NOT describe the clothes here (kept simple automatically).",
                 },
+                "force_new": {
+                    "type": "boolean",
+                    "description": "Optional. Generate a fresh frame even if a saved one exists for this "
+                    "character + scene (default false = reuse the saved one when available, free).",
+                },
             },
             "required": ["character", "scene"],
         },
     }
 )
-def establish_avatar_scene(session: VideoSession, character: str, scene: str) -> dict:
+def establish_avatar_scene(session: VideoSession, character: str, scene: str,
+                           force_new: bool = False) -> dict:
     _, char = _resolve_character(session, character)
+    out = os.path.join(session.output_dir, f"establish_{character}.jpg")
+    # RÉUTILISATION (gratuit) : un établissement identique (même personnage + même lieu) déjà en
+    # bibliothèque -> on le reprend au lieu de régénérer. `force_new=True` pour forcer une nouvelle.
+    if not force_new:
+        hit = library_find("establish", character, scene)
+        if hit:
+            session.characters[character]["portrait_url"] = hit["url"]
+            try:
+                session.characters[character]["local_image"] = download(hit["url"], out)
+            except Exception:
+                pass
+            return {"status": "ok", "character": character, "scene": scene,
+                    "reference": hit["url"], "reused": True,
+                    "note": "Reused a SAVED establishing frame from the library (no generation — free). "
+                            "PINNED as the run reference. Pass `force_new=true` to generate a fresh one."}
     local = char.get("local_image")
     if not local:
         return {
@@ -1459,8 +1463,11 @@ def establish_avatar_scene(session: VideoSession, character: str, scene: str) ->
     look = (
         char.get("appearance") or char.get("description") or "the same person"
     ).strip()
-    out = os.path.join(session.output_dir, f"establish_{character}.jpg")
     prompt = ESTABLISH_TEMPLATE.format(look=look, scene=scene)
+    if len(prompt) > 2000:                              # limite prompt de l'éditeur (Wan: 2100) :
+        over = len(prompt) - 2000                       # on tronque l'apparence, pas la scène
+        look = look[: max(0, len(look) - over - 1)].rstrip() + "…"
+        prompt = ESTABLISH_TEMPLATE.format(look=look, scene=scene)
     src_url = char.get("portrait_url") or upload_public(
         session.ctx.gcs, local, f"media/test/char_{character}_src.png"
     )
@@ -1474,7 +1481,10 @@ def establish_avatar_scene(session: VideoSession, character: str, scene: str) ->
     )
     # L'éditeur suit souvent le ratio de la source : on force le 9:16 (sujet centré -> crop sûr).
     frame = crop_to_vertical(frame, out)
-    url = upload_public(session.ctx.gcs, frame, f"media/test/establish_{character}.jpg")
+    aid = asset_key("establish", character, scene)     # nom de fichier unique par (perso, scène)
+    url = upload_public(session.ctx.gcs, frame, f"media/test/establish_{character}_{aid}.jpg")
+    # SAUVEGARDE PERMANENTE dans la bibliothèque -> réutilisable dans les prochains runs (gratuit).
+    library_add("establish", scene, url, prompt=prompt, character=character)
     # PIN pour tout le run : le portrait ET la source locale deviennent cette frame d'établissement,
     # que tous les plans (H3 / b-roll) réutiliseront comme référence d'identité.
     session.characters[character]["portrait_url"] = url
@@ -1484,8 +1494,10 @@ def establish_avatar_scene(session: VideoSession, character: str, scene: str) ->
         "character": character,
         "scene": scene,
         "reference": url,
-        "note": "Establishing frame generated and PINNED as the run's reference for this character. "
-        "All next shots reuse it — same face, simple clothes, same setting. Plan shots now.",
+        "reused": False,
+        "note": "Establishing frame generated, SAVED to the library (reusable in future runs) and "
+        "PINNED as the run's reference. All next shots reuse it — same face, simple clothes, same "
+        "setting. Plan shots now.",
     }
 
 
