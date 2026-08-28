@@ -134,6 +134,15 @@
       "prompt": "Keep the FACE, head shape, hair and skin tone of this exact same person EXACTLY identical to the source image. Show this person as: Femme de 30 ans, cheveux châtains attachés en chignon décontracté, quelques mèches encadrant le visage, portant un tablier en lin écru sur un t-shirt blanc neutre. Visage expressif, souriant et naturel.. Place them in: a cozy creative workshop with a light wood table, potted green plants, soft natural side light, blurred bokeh background, warm Pinterest DIY aesthetic. Vertical 9:16 portrait, upper body, centered, facing the camera. IMPORTANT — the clothing MUST be SIMPLE and easy for an AI to reproduce consistently: a plain solid-color garment (e.g. a plain crew-neck t-shirt or shirt), NO logos, NO text, NO prints, NO complex patterns, NO flashy or busy accessories; keep at most minimal, plain accessories. Photorealistic, cinematic, soft natural lighting, shallow depth of field. ONE single person only; do NOT duplicate or clone the person; keep the identity and face EXACTLY the same.",
       "url": "https://storage.googleapis.com/content-bucket-charles-doux/media/test/establish_avatar_2e8413da26b3.jpg",
       "created": 1787925603.868227
+    },
+    {
+      "id": "6a0fc0e6333f",
+      "kind": "establish",
+      "character": "avatar",
+      "description": "a cozy bright DIY craft studio, light wood table, green plants in the background, soft natural side light through a window, warm tones, blurred bokeh background, Pinterest cosy handcraft aesthetic",
+      "prompt": "Keep the FACE, head shape, hair and skin tone of this exact same person EXACTLY identical to the source image. Show this person as: Femme de 30 ans, cheveux châtains attachés en chignon décontracté, quelques mèches encadrant le visage, portant un tablier en lin écru sur un t-shirt blanc neutre. Visage expressif, souriant et naturel.. Place them in: a cozy bright DIY craft studio, light wood table, green plants in the background, soft natural side light through a window, warm tones, blurred bokeh background, Pinterest cosy handcraft aesthetic. Vertical 9:16 portrait, upper body, centered, facing the camera. IMPORTANT — the clothing MUST be SIMPLE and easy for an AI to reproduce consistently: a plain solid-color garment (e.g. a plain crew-neck t-shirt or shirt), NO logos, NO text, NO prints, NO complex patterns, NO flashy or busy accessories; keep at most minimal, plain accessories. Photorealistic, cinematic, soft natural lighting, shallow depth of field. ONE single person only; do NOT duplicate or clone the person; keep the identity and face EXACTLY the same.",
+      "url": "https://storage.googleapis.com/content-bucket-charles-doux/media/test/establish_avatar_6a0fc0e6333f.jpg",
+      "created": 1787928905.3240378
     }
   ]
 }
