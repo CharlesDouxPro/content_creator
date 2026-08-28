@@ -14,6 +14,7 @@ from typing import List, Optional, Literal, Dict
 from pydantic import BaseModel, HttpUrl
 import json
 from openai import OpenAI
+from content_creator.agentic.llm_client import create_llm_client
 import base64
 import asyncio
 from mutagen.mp3 import MP3
@@ -248,8 +249,7 @@ class ArticleSummarizer:
         """`model_config` = ModelConfig {model_name, provider{base_url, token}} du
         channel (rôle `slm`). Sans config -> globals du .env (comportement historique)."""
         if model_config:
-            provider = model_config["provider"]
-            self.client = OpenAI(api_key=provider["token"], base_url=provider["base_url"])
+            self.client = create_llm_client(model_config)
             self.model_name = model_config["model_name"]
         else:
             self.client = OpenAI(

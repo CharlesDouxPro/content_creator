@@ -78,6 +78,12 @@ DEFAULT_PROVIDERS: dict[str, Provider] = {
         base_url=os.getenv("INFERENCE_ROUTER_URL", "http://localhost:30000"),
         api_key=os.getenv("INFERENCE_SERVER_API_KEY", ""),
     ),
+    # Anthropic Foundry (API Anthropic native, pas OpenAI-compatible). base_url = resource
+    # Foundry (identifiant du déploiement). Rôles LLM uniquement (master_mind / slm).
+    "foundry": Provider(
+        base_url=os.getenv("FOUNDRY_RESOURCE", ""),
+        api_key=os.getenv("FOUNDRY_API_KEY", ""),
+    ),
 }
 
 

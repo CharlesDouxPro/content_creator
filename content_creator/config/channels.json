@@ -49,24 +49,24 @@
     }
   },
   {
-    "name": "fruits",
-    "skill": "free_creator",
+    "name": "DIY",
+    "skill": "minimax",
     "models": {
       "master_mind": {
-        "model_name": "anthropic/claude-opus-4-8",
-        "provider_id": "arlq_deepinfra"
+        "model_name": "claude-opus-4-7-1",
+        "provider_id": "foundry"
       },
       "slm": {
-        "model_name": "anthropic/claude-opus-4-8",
-        "provider_id": "arlq_deepinfra"
+        "model_name": "claude-opus-4-7-1",
+        "provider_id": "foundry"
       },
       "video_avatar": {
-        "model_name": "PrunaAI/p-video-avatar",
-        "provider_id": "charles_deepinfra"
+        "model_name": "MiniMaxAI/MiniMax-H3",
+        "provider_id": "h3_local"
       },
       "video_generator": {
-        "model_name": "Wan-AI/Wan2.6-T2V",
-        "provider_id": "charles_deepinfra"
+        "model_name": "MiniMaxAI/MiniMax-H3",
+        "provider_id": "h3_local"
       },
       "voice_generator": {
         "model_name": "nPczCjzI2devNBz1zQrb",
@@ -74,32 +74,37 @@
       },
       "image_generator": {
         "model_name": "stabilityai/sd3.5",
-        "provider_id": "charles_deepinfra"
+        "provider_id": "arlq_deepinfra"
       }
     },
     "context": {
-      "prompt": "Crée une histoire totalement fictive. C'est l'histoire de 3 petits poneys qui sont enfaite trump khamenei et macron et ont des dialogues pour se battre pour le détroit d'ormuz. Fait une video qui résume avec humour en version annimé cet episode géopolitique. Fais PARLER chaque poney via son personnage (paramètre `character`) pour des voix distinctes ; alterne un personnage par plan pour le dialogue.",
+      "prompt": "Tu es un expert en création de contenus vidéo DIY / Handcraft et un ingénieur de prompts spécialisé pour la génération d'avatars et de vidéos IA photoréalistes.\n\nTon objectif est de générer un plan de vidéo DIY complet, chaleureux et hyper détaillé à partir du sujet suivant :\n👉 SUJET DIY : {Idée DIY}\n\n---\n\n### CONSIGNES DE RÉDACTION DU PLAN VIDÉO :\n\n1. **Ambiance & Style Visuel (Master Avatar & Décor) :**\n   - L'ambiance doit être chaleureuse, lumineuse, sympathique et esthétique (type Pinterest / Cosy DIY).\n   - Décor recommandé : Atelier créatif avec table en bois clair, plantes vertes, arrière-plan flou (bokeh) et lumière naturelle.\n   - Paramètre technique à appliquer sur l'ensemble du rendu : Num inference steps = 50 (optimisé pour le LoRA Realism).\n\n2. **Structure des Scènes :**\n   Pour chaque étape du tutoriel, découpe la scène selon la structure suivante :\n   - **Nom de la Scène + Durée estimée**\n   - **Cadrage & Angle caméra** (Plan moyen, Top-down 90°, Plan serré/Macro, Plan large décoratif...)\n   - **Action de l'avatar** (Gestes précis, mouvements naturels, présentation des matériaux, manipulation...)\n   - **Script Voix-Off** (Ton dynamique, chaleureux et explicatif. Ne doit comporter aucun accent québécois ni accent anglophone).\n   - **Prompt Visual Generator (En Anglais)** : Un prompt ultra-détaillé décrivant la scène visuelle pour l'IA vidéo (MiniMaxH3).\n\n3. **Découpage type à respecter :**\n   - **Scène 1 : Accroche & Résultat final** (Hook visuel avec l'objet fini et l'avatar).\n   - **Scène 2 : Présentation du matériel** (Vue de dessus / Top-down de tous les ingrédients/outils).\n   - **Scènes 3 à N : Étapes de fabrication pas-à-pas** (Mélange, application, découpe, assemblage, séchage...).\n   - **Scène finale : Mise en scène du résultat** (L'avatar finalise la déco et regarde la caméra avec un sourire satisfait).\n\n---\n\n### NEGATIVE PROMPT (À intégrer dans les instructions visuelles et audio) :\nVoice: Quebec accent, English accent speaking French, robotic tone, unnatural pauses.\nVideo: Extremely close face zoom, distorted hands, blurry fingers, unrealistic physics, flickering lighting, noisy texture.\n\n---\n\nGénère maintenant la fiche de configuration complète et le script détaillé par scène pour : {Idée DIY}.",
       "ressources": {
         "urls": [],
         "local_paths": [],
         "audio_paths": []
       },
-      "mood": "dessin annimé pour adulte",
+      "mood": ": Photoréalisme 4K, rendu cinématographique, lumière naturelle douce par le côté, couleurs chaudes.",
       "characters": {
-        "trump": {
+        "avatar": {
+          "image": "https://storage.googleapis.com/content-bucket-charles-doux/avatars/gemini-generated-image-nczmgnczmgnczmgn.jpeg",
           "voice": "pNInz6obpgDQGcFmaJgB",
-          "description": "petit poney orange à la mèche blonde, ton bravache et théâtral"
-        },
-        "khamenei": {
-          "voice": "nPczCjzI2devNBz1zQrb",
-          "description": "petit poney sombre à turban, ton grave et solennel"
-        },
-        "macron": {
-          "voice": "JBFqnCBsd6RMkjVDRZzb",
-          "description": "petit poney bleu-blanc-rouge, ton posé et un peu pédant"
+          "appearance": "Femme de 30 ans, cheveux châtains attachés en chignon décontracté, quelques mèches encadrant le visage, portant un tablier en lin écru sur un t-shirt blanc neutre. Visage expressif, souriant et naturel.",
+          "avatar_prompt": "Femme de 30 ans, cheveux châtains attachés en chignon décontracté, quelques mèches encadrant le visage, portant un tablier en lin écru sur un t-shirt blanc neutre. Visage expressif, souriant et naturel."
         }
       },
-      "parameters": []
+      "parameters": [
+        {
+          "name": "Idée DIY",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "num_inference_steps",
+          "type": "number",
+          "value": "50"
+        }
+      ]
     }
   },
   {
@@ -224,7 +229,7 @@
       }
     },
     "context": {
-      "prompt": "# RÔLE\nTu es scénariste-réalisateur de vidéos TikTok tech. À partir de l'ARTICLE fourni par\nl'utilisateur, tu produis le script complet et le découpage plan par plan d'une vidéo\nd'avatar-présentateur qui explique l'actualité.\n\n# ENTRÉE\nUn article (texte, lien ou extrait) collé par l'utilisateur.\n\n# MÉTHODE (dans cet ordre)\n1. LECTURE — Identifie : le fait principal, l'acteur, LE chiffre ou détail technique le\n   plus frappant, ce qui change concrètement pour l'utilisateur final.\n2. CONTEXTE (ta connaissance) — Avant d'entrer dans l'article, pose le décor : d'où vient\n   ce sujet, qui sont les acteurs, quel était l'état des choses jusqu'ici, pourquoi ça\n   compte. C'est TOI qui apportes ce socle, pas l'article.\n3. ACTUALITÉ (l'article) — Résume ce que l'article annonce vraiment, en clair, sans jargon\n   inutile. Aucune invention : chiffres, noms, dates et citations viennent de l'article.\n   Si une info manque, ne la comble pas — dis-le à l'oral (\"on ne sait pas encore si...\").\n4. EXPLICATION — Décode le détail technique, dis pourquoi c'est un vrai changement ou\n   pourquoi c'est survendu, tranche avec un verdict assumé. Fait une petite explication technique un peu poussée mais sans trop en faire.\n5. SCRIPT — Écris le texte parlé (français oral, phrases courtes, ~2 min, ≈300-330 mots),\n   puis le découpage en plans.\n\n# ARC NARRATIF (~2 min)\n- 0-3 s ACCROCHE CHOC : présentateur penché vers le micro, sourcils levés, main qui\n  ponctue. Une question ou une affirmation qui coupe le souffle et stoppe le scroll.\n- 3-25 s CONTEXTE rapide (étape 2).\n- 25-70 s CŒUR DE L'INFO : le résumé de l'article + LE détail technique qui fait réagir.\n- 70-105 s MONTÉE D'INTENSITÉ : il argumente, nuance, s'échauffe, sourit, tranche.\n- 105-120 s PUNCH FINAL ouvert qui appelle le commentaire (\"t'en penses quoi ?\") + le lien de l'article dans la description.\nTraite le sujet comme un SCOOP URGENT — leak, feature qui change tout, chiffre qui choque,\nverdict sans langue de bois — jamais comme un récap mou.\n\n# PRÉSENTATEUR (unique)\nPresenter 1 (Avatar) : homme barbu, animateur passionné, énergie d'un journaliste tech qui présente un nouveau fait sur L'IA depuis un article. Il parle SEUL face caméra. On ne montre JAMAIS deux bouches en même temps ; aucun second présentateur n'apparaît, jamais.\n\n# DÉCOR, LUMIÈRE, CADRAGE (identiques d'un plan à l'autre)\nStudio pro moderne, mousses acoustiques sombres, étagères de gadgets et écrans en veille en\nfond, micro et interface audio dans le cadre. Lumière nette et contrastée qui sculpte le\nvisage en tons chauds sur décor gris-bleu froid, discrets accents tech (reflets d'écran, LED\ntamisées). Vertical 9:16, pensé mobile : cadrage serré, sujet centré haut, marge basse pour\nles sous-titres, légère profondeur de champ, texture réaliste et moderne, palette premium et\nsobre (gris, bleus profonds, accents chauds maîtrisés). Ambiance électronique/urbaine\ndiscrète qui soutient le rythme sans couvrir la voix.\n",
+      "prompt": "# RÔLE\nTu es scénariste-réalisateur de vidéos TikTok tech. À partir de l'ARTICLE fourni par\nl'utilisateur, tu produis le script complet et le découpage plan par plan d'une vidéo\nd'avatar-présentateur qui explique l'actualité.\n\n# ENTRÉE\nUn article (texte, lien ou extrait) collé par l'utilisateur.\n\n# MÉTHODE (dans cet ordre)\n1. LECTURE — Identifie : le fait principal, l'acteur, LE chiffre ou détail technique le\n   plus frappant, ce qui change concrètement pour l'utilisateur final.\n2. CONTEXTE (ta connaissance) — Avant d'entrer dans l'article, pose le décor : d'où vient\n   ce sujet, qui sont les acteurs, quel était l'état des choses jusqu'ici, pourquoi ça\n   compte. C'est TOI qui apportes ce socle, pas l'article.\n3. ACTUALITÉ (l'article) — Résume ce que l'article annonce vraiment, en clair, sans jargon\n   inutile. Aucune invention : chiffres, noms, dates et citations viennent de l'article.\n   Si une info manque, ne la comble pas — dis-le à l'oral (\"on ne sait pas encore si...\").\n4. EXPLICATION — Décode le détail technique, dis pourquoi c'est un vrai changement ou\n   pourquoi c'est survendu, tranche avec un verdict assumé. Fait une petite explication technique un peu poussée mais sans trop en faire.\n5. SCRIPT — Écris le texte parlé (français oral, phrases courtes, ~2 min, ≈300-330 mots),\n   puis le découpage en plans.\n\n# ARC NARRATIF (~2 min)\n- 0-3 s ACCROCHE CHOC : présentateur penché vers le micro, sourcils levés, main qui\n  ponctue. Une question ou une affirmation qui coupe le souffle et stoppe le scroll.\n- 3-25 s CONTEXTE rapide (étape 2).\n- 25-70 s CŒUR DE L'INFO : le résumé de l'article + LE détail technique qui fait réagir.\n- 70-105 s MONTÉE : il argumente, nuance, s'échauffe, sourit, tranche.\n- 105-120 s PUNCH FINAL ouvert qui appelle le commentaire (\"t'en penses quoi ?\") + mentionne qu'il y a le lien de l'article dans la description.\nTraite le sujet comme une superbe nouvelle — leak, feature qui change, chiffre qui choque,\nverdict sans langue de bois — jamais comme un récap mou.\n\n# PRÉSENTATEUR (unique)\nPresenter 1 (Avatar) : homme barbu, animateur passionné, journaliste tech qui présente un nouveau fait sur L'IA depuis un article. Il parle SEUL face caméra. On ne montre JAMAIS deux bouches en même temps ; aucun second présentateur n'apparaît, jamais. Le présentateur a deja un background dans son image, n'en crée pas un nouveau. Assure toi qu'il garde le meme ton de voix durant toute la video.\n\n# DÉCOR, LUMIÈRE, CADRAGE (identiques d'un plan à l'autre)\nStudio pro moderne, mousses acoustiques sombres, étagères de gadgets et écrans en veille en\nfond, micro et interface audio dans le cadre. Lumière nette et contrastée qui sculpte le\nvisage en tons chauds sur décor gris-bleu froid, discrets accents tech (reflets d'écran, LED\ntamisées). Vertical 9:16, pensé mobile : cadrage serré, sujet centré haut, marge basse pour\nles sous-titres, légère profondeur de champ, texture réaliste et moderne, palette premium et\nsobre (gris, bleus profonds, accents chauds maîtrisés). Ambiance électronique/urbaine\ndiscrète qui soutient le rythme sans couvrir la voix. Pas de zoom sur le présentateur inutiles hormis si nécessite de crée de la tension. \n\n\n#NEGATIVE PROMPT\nL'accent quebequois. Une voix anglaise qui parle français. Les zooms torp proches du visage. \n",
       "ressources": {
         "urls": [],
         "local_paths": [],
@@ -233,9 +238,9 @@
       "mood": "Énergique, coupes franches, plans courts et percutants (2-8 s), gestuelle simple, regard caméra.",
       "characters": {
         "Avatar": {
-          "image": "https://storage.googleapis.com/content-bucket-charles-doux/avatars/avatar-mature-men.jpeg",
+          "image": "https://storage.googleapis.com/content-bucket-charles-doux/avatars/gemini-generated-image-kjg1sikjg1sikjg1.jpeg",
           "description": "Distinguished, mature male presenter, calm and confident, hosting to camera.",
-          "appearance": "A distinguished, athletic man aged about 50-55, lean and fit with a medium-tall frame and good upright posture. Fair, lightly tanned skin with a mature, healthy texture: soft horizontal forehead lines, light crow's feet at the eyes, and gentle nasolabial folds. Oval-to-rectangular face with defined cheekbones, a straight nose and a strong jawline. Short silver-grey hair with natural volume, brushed up and back and slightly textured/wavy, a touch lighter and whiter at the temples and sides, with a hairline receding slightly at the temples. A full but short, neatly trimmed salt-and-pepper beard and connected moustache (mostly grey and white with a few darker strands), covering the jaw and chin. Grey-brown eyebrows of moderate thickness, calm light grey-blue eyes with a composed, relaxed, neutral expression and closed lips. Wearing a fitted plain heather-grey (medium grey marl) short-sleeve crew-neck cotton t-shirt with no print, dark charcoal-grey slim tailored flat-front trousers, and brown leather lace-up derby shoes. Clean-shaven neck aside from the beard. NO glasses, no hat, no cap, no headphones, no earphones, no microphone, no earrings, no visible watch, no jewelry, no tattoos, no logos or prints. Clean, softly and evenly lit, plain off-white / very light grey seamless studio background.",
+          "appearance": "L'homme, âgé d'une soixantaine d'années, a des cheveux courts, argentés et bien coiffés, ainsi qu'une barbe grise et une moustache soigneusement taillées. Il porte un t-shirt à col rond gris uni. Il est assis derrière un bureau, regardant directement l'objectif avec une expression calme et assurée, ses bras reposant naturellement sur la table.\n\nL'arrière-plan est un studio de podcast tech moderne et sophistiqué, caractérisé par des panneaux acoustiques gris charbon de bois texturés en nid d'abeille. Au-dessus de lui, deux étagères en verre sont suspendues, rétroéclairées par des lumières LED chaudes, présentant une collection de gadgets technologiques détaillés : un clavier mécanique noir (probablement à disposition compacte 60% ou 65%), un appareil photo argentique vintage de type rangefinder, un circuit imprimé complexe et détaillé sur un support transparent, et une paire de casques audio audiophiles haut de gamme (comme des Planar-Magnetic ou des Beyerdynamic ouverts) sur un support dédié.\n\nDerrière l'homme, deux écrans de studio ultra-plats sont visibles en mode veille, émettant une lumière ambiante bleu ardoise subtile. Sur l'écran de droite, le texte \"TECH PULSE\" est clairement affiché dans une police épurée et moderne. Sur le bureau en stratifié foncé devant l'homme, un microphone de studio professionnel noir (semblable à un Shure SM7B) est monté sur un bras articulé noir et positionné près de sa bouche. À côté, on voit une interface audio compacte et détaillée (comme une Focusrite Scarlett 2i2) avec des boutons et des indicateurs lumineux.\n\nLa composition est centrée, avec un bokeh prononcé mais contrôlé dans l'arrière-plan pour isoler le sujet. L'éclairage est cinématographique, avec des lumières d'accentuation chaudes sur les étagères et le sujet, s'équilibrant avec les tons froids bleu-ardoise et gris-foncé de la pièce. La photo est ultra-détaillée (8k), capturant les textures des panneaux acoustiques, du tissu du t-shirt, et des composants électroniques. L'atmosphère est professionnelle, technologique, et épurée, suggérant un contenu de podcast de haute qualité.",
           "avatar_prompt": "Photorealistic portrait of a distinguished man in his early fifties, fit build, fair lightly tanned skin with mature texture. Short silver-grey combed hair receding slightly at the temples, full neatly trimmed salt-and-pepper beard and moustache, calm grey-blue eyes, confident composed expression. Wearing a plain heather-grey crew-neck short-sleeve t-shirt. Clean, soft, evenly lit plain light-grey studio background. Natural realistic lighting, sharp focus on the face."
         }
       },

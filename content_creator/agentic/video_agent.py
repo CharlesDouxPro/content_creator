@@ -14,7 +14,7 @@ import json
 import os
 import time
 
-from openai import OpenAI
+from content_creator.agentic.llm_client import create_llm_client
 
 from content_creator.agentic.capabilities import (
     Ctx,
@@ -202,8 +202,7 @@ def run_agent(content: str = None, skill_name: str = "avatar_story",
     session.name = label                          # namespace de dédup pour le tool scrape_article
 
     master_mind = models["master_mind"]
-    client = OpenAI(api_key=master_mind["provider"]["token"],
-                    base_url=master_mind["provider"]["base_url"])
+    client = create_llm_client(master_mind)
     agent_model = master_mind.get("model_name") or AGENT_MODEL
     video_model = models.get("video_generator")
     tools = openai_tool_schemas(skill.tool_names)

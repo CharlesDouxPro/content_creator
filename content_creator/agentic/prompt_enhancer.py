@@ -14,7 +14,7 @@ Le LLM utilisé est celui du rôle `master_mind` du channel (même client OpenAI
 l'agent), pour rester cohérent avec le cerveau qui produira réellement la vidéo.
 """
 
-from openai import OpenAI
+from content_creator.agentic.llm_client import create_llm_client
 
 from content_creator.agentic.ltx_prompting import build_prompt_guide
 from content_creator.agentic.model_prompting import DEFAULT_MODEL_KEY, resolve_model_skill
@@ -76,7 +76,7 @@ def enhance_prompt(prompt: str, models_config: dict, skill_name: str | None = No
 
     master = models_config["master_mind"]
     video_model = models_config.get("video_generator")
-    client = OpenAI(api_key=master["provider"]["token"], base_url=master["provider"]["base_url"])
+    client = create_llm_client(master)
     model = master.get("model_name") or ENHANCER_MODEL
 
     # Tools du skill -> borne les sections conditionnelles du guide (lip-sync, etc.). Skill inconnu

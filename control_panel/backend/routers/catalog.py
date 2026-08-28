@@ -91,8 +91,10 @@ def catalog_models() -> ModelsInfo:
         for role in ROLES
     }
     suggestions = {
-        "master_mind": ["anthropic/claude-opus-4-8", "anthropic/claude-sonnet-4-6", "openai/gpt-oss-120b"],
-        "slm": ["anthropic/claude-opus-4-8", "anthropic/claude-haiku-4-5", "openai/gpt-oss-120b"],
+        "master_mind": ["anthropic/claude-opus-4-8", "anthropic/claude-sonnet-4-6", "openai/gpt-oss-120b",
+                        "claude-opus-4-20250514", "claude-sonnet-4-20250514"],
+        "slm": ["anthropic/claude-opus-4-8", "anthropic/claude-haiku-4-5", "openai/gpt-oss-120b",
+                 "claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"],
         # Pour LTX local : choisir le provider "ltx_local" (le model_name est cosmétique,
         # c'est le serveur qui charge son checkpoint ; le provider_id aiguille le backend).
         "video_avatar": ["PrunaAI/p-video-avatar", "ltx-2.3"],

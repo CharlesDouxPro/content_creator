@@ -5,21 +5,15 @@ Creates engaging videos with images synchronized to audio narration.
 """
 
 import json
-import time
-import requests
-import numpy as np
-from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass
-from datetime import datetime
-import re
-from openai import OpenAI
-from mutagen.mp3 import MP3
-import wave
-import struct
 import os
+import re
+import time
+from dataclasses import dataclass
 
-from config import API_KEYS, AI_CONFIG, GCS_CONFIG
+from config import AI_CONFIG, API_KEYS, GCS_CONFIG
 from modules import GCSManager
+from mutagen.mp3 import MP3
+from openai import OpenAI
 
 
 @dataclass
@@ -30,16 +24,16 @@ class VideoSegment:
     text: str
     image_prompt: str
     transition_type: str
-    keywords: List[str]
+    keywords: list[str]
 
 
 @dataclass
 class ContentPlan:
     """Complete content plan for video generation."""
-    segments: List[VideoSegment]
+    segments: list[VideoSegment]
     total_duration: float
     style_theme: str
-    color_palette: List[str]
+    color_palette: list[str]
     mood: str
 
 
@@ -62,7 +56,7 @@ class TikTokVideoContentGenerator:
         audio_path: str,
         transcript: str,
         audio_length: float
-    ) -> Dict:
+    ) -> dict:
         """
         Analyze audio and text to create timing segments.
 
@@ -113,7 +107,7 @@ class TikTokVideoContentGenerator:
         self,
         transcript: str,
         audio_length: float,
-        article_context: Dict = None
+        article_context: dict = None
     ) -> ContentPlan:
         """
         Create a detailed content plan with synchronized visuals.
@@ -152,7 +146,7 @@ class TikTokVideoContentGenerator:
             mood=style_analysis["mood"]
         )
 
-    def _split_into_sentences(self, text: str) -> List[str]:
+    def _split_into_sentences(self, text: str) -> list[str]:
         """Split text into sentences intelligently."""
         # Handle French punctuation
         sentences = re.split(r'[.!?]+', text)
@@ -174,7 +168,7 @@ class TikTokVideoContentGenerator:
 
         return merged
 
-    def _analyze_audio_pauses(self, audio_path: str) -> Optional[List[float]]:
+    def _analyze_audio_pauses(self, audio_path: str) -> list[float] | None:
         """
         Analyze audio file to detect natural pauses.
         Returns timestamps of significant pauses.
@@ -188,16 +182,16 @@ class TikTokVideoContentGenerator:
 
     def _adjust_timings_with_audio(
         self,
-        timings: List[Dict],
-        audio_pauses: List[float],
+        timings: list[dict],
+        audio_pauses: list[float],
         total_duration: float
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Adjust text timings based on detected audio pauses."""
         # Implement smart timing adjustment based on audio pauses
         # This would align text boundaries with natural speech pauses
         return timings
 
-    def _analyze_content_style(self, transcript: str, context: Dict = None) -> Dict:
+    def _analyze_content_style(self, transcript: str, context: dict = None) -> dict:
         """Analyze content to determine visual style."""
 
         prompt = f"""
@@ -240,7 +234,7 @@ class TikTokVideoContentGenerator:
         transcript: str,
         audio_length: float,
         target_segment_duration: float = 4.0
-    ) -> List[VideoSegment]:
+    ) -> list[VideoSegment]:
         """
         Create optimal video segments for TikTok engagement.
 
@@ -291,7 +285,7 @@ class TikTokVideoContentGenerator:
 
         return segments
 
-    def _extract_keywords(self, text: str) -> List[str]:
+    def _extract_keywords(self, text: str) -> list[str]:
         """Extract key visual words from text."""
         # Remove common words
         stop_words = {"le", "la", "les", "un", "une", "des", "et", "ou", "de", "du", "pour", "avec", "dans", "sur"}
@@ -301,10 +295,10 @@ class TikTokVideoContentGenerator:
 
     def _generate_image_prompts(
         self,
-        segments: List[VideoSegment],
-        style_analysis: Dict,
-        context: Dict = None
-    ) -> List[VideoSegment]:
+        segments: list[VideoSegment],
+        style_analysis: dict,
+        context: dict = None
+    ) -> list[VideoSegment]:
         """
         Generate image prompts for each segment that match the narration.
 
@@ -366,7 +360,7 @@ class TikTokVideoContentGenerator:
     def _enhance_prompt_with_style(
         self,
         prompt: str,
-        style: Dict,
+        style: dict,
         index: int,
         total: int
     ) -> str:
@@ -398,7 +392,7 @@ class TikTokVideoContentGenerator:
 
         return f"{prompt}, {quality_modifiers}, {style_mod}, {progression}"
 
-    def _ensure_visual_continuity(self, segments: List[VideoSegment]) -> List[VideoSegment]:
+    def _ensure_visual_continuity(self, segments: list[VideoSegment]) -> list[VideoSegment]:
         """Ensure visual continuity between segments."""
 
         # Add continuity elements to prompts
@@ -414,7 +408,7 @@ class TikTokVideoContentGenerator:
         content_plan: ContentPlan,
         article_gcs_path: str,
         use_placeholder: bool = False
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Generate actual videos from the content plan.
 
@@ -503,9 +497,9 @@ class TikTokVideoContentGenerator:
         self,
         audio_path: str,
         transcript: str,
-        article_context: Dict,
+        article_context: dict,
         output_path: str
-    ) -> Dict:
+    ) -> dict:
         """
         Main function to create an optimized TikTok video.
 
